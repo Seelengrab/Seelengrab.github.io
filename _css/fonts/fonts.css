@@ -1,0 +1,9 @@
+@font-face {
+    font-family: 'Open Sans';
+    src: url('Open_Sans/OpenSans-Regular.ttf') format('truetype');
+}
+
+@font-face {
+    font-family: 'FiraCode';
+    src: url('Fira_Code/static/FiraCode-Regular.ttf') format('truetype');
+}
