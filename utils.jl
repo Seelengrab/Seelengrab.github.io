@@ -16,7 +16,7 @@ function hfun_pagetags()
     io = IOBuffer()
     write(io, """<ul class="franklin-content" id="tags">\n""")
     for tag in tags
-        write(io, """<li><a href="/tag/$tag/">$tag</a></li>""")
+        write(io, """<li><a href='/tag/$tag/'>$tag</a></li>""")
     end
     write(io, "</ul>")
 
@@ -40,7 +40,7 @@ function hfun_allarticles()
     write(io, "<ul>")
     for art in arts
         article = basename(art)
-        write(io, """<li><a href="$article/">$article</a></li>\n""")
+        write(io, """<li><a href='$article/'>$article</a></li>\n""")
     end
     write(io, "</ul>")
     return String(take!(io))
@@ -56,7 +56,7 @@ function hfun_recentarticles()
     write(io, """<ul class="recent">""")
     for art in @view(arts[1:min(5, end)])
         article = basename(art)
-        write(io, """<li><a href="$art/">$article</a></li>\n""")
+        write(io, """<li><a href='$art/'>$article</a></li>\n""")
     end
     write(io, "</ul>")
     return String(take!(io))
