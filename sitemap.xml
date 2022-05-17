@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes" ?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+
+<url>
+    <loc>seelengrab.github.io/404/index.html</loc>
+    <lastmod>2022-05-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
+    <loc>seelengrab.github.io/articles/About%20some%20responses%20to%20that%20%22Correctness%20in%20Julia%22%20post/index.html</loc>
+    <lastmod>2022-05-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
+    <loc>seelengrab.github.io/articles/index.html</loc>
+    <lastmod>2022-05-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
+    <loc>seelengrab.github.io/index.html</loc>
+    <lastmod>2022-05-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
+    <loc>seelengrab.github.io/about/index.html</loc>
+    <lastmod>2022-05-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
+    <loc>seelengrab.github.io/tag/index.html</loc>
+    <lastmod>2022-05-17</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+</urlset>
