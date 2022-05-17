@@ -100,6 +100,8 @@ For this to conform to the added bounds checking interface requires knowing what
 result depends not only on the type but on the concrete value, as is the case for `OffsetArrays.jl`, the compiler can't ever elide the check
 on its own simply because it fully requires knowing a runtime value at compile time. If it could, we wouldn't need `@inbounds` in the first place.
 
+### `checkbounds`
+
 By now, someone probably remembers (likely from implementing the `AbstractArray` interface themselves and wanting to elide bounds checking
 on their type with `@inbounds`) that there actually is such a function providing exactly that interface: `checkbounds`. That however
 doesn't solve our problem, because as a matter of fact, [OffsetArrays.jl is using that for its bounds checking](https://github.com/JuliaArrays/OffsetArrays.jl/blob/4959bab649583bb118898671d2006ed8ea7716e1/src/OffsetArrays.jl#L412-L416)!
@@ -107,7 +109,10 @@ Once again - the interfaces are all implemented correctly by `OffsetArrays.jl`. 
 comes along and assumes more from their types than they guarantee.
 
 These issues are not exclusive to julia - there are whole [research languages](https://github.com/google-research/dex-lang) dedicated to this problem. Even just confined to indexing, it is very far from a solved problem. The situation right now, however, boils down to "check every
-access or manage to prove (or convince the compiler) that you don't need to".
+access or manage to prove (or convince the compiler) that you don't need to". Or just hope code review catches it - in my opinion the worst,
+if most humane option.
+
+## Fixing the most common issues
 
 I don't want to go on and on about how interfaces don't fix this, so let's take a look at both examples I gave and how they could be fixed,
 without getting rid of `@inbounds` in the loop, to keep performance up. Here's the first one:
