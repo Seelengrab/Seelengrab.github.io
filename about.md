@@ -14,3 +14,8 @@ The views, opinions and all other stuff on here are my own.
 What I decide to share here is generally licensed as [CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/). That includes both
 prose and code, should any be shared. Do note that individual snippets may not run on their own and may require external code, which may
 be licensed differently (I usually use MIT for my open source packages).
+
+You can find me on other channels as well:
+
+ * [Github](https://github.com/Seelengrab)
+ * [JuliaLang Discourse](https://discourse.julialang.org/u/sukera/summary)
