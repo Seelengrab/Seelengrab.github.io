@@ -1,3 +1,5 @@
+using Dates: unix2datetime
+
 function hfun_bar(vname)
   val = Meta.parse(vname[1])
   return round(sqrt(val), digits=2)
@@ -35,12 +37,14 @@ end
 function hfun_allarticles()
     arts = articles()
     isempty(arts) && return "No articles written"
-    sort!(arts)
+    mtime(f) = stat(f).mtime
+    sort!(arts; by=mtime, rev=true)
     io = IOBuffer()
     write(io, "<ul>")
     for art in arts
         article = basename(art)
-        write(io, """<li><a href='$article/'>$article</a></li>\n""")
+        date = Date(unix2datetime(mtime(joinpath(art, ".published"))))
+        write(io, """<li><a href='$art/'>$date - $article</a></li>\n""")
     end
     write(io, "</ul>")
     return String(take!(io))
@@ -50,7 +54,7 @@ function hfun_recentarticles()
     arts = articles()
     isempty(arts) && return "No articles written"
     mtime(f) = stat(f).mtime
-    partialsort!(arts, 1:min(5,lastindex(arts)); by=mtime)
+    partialsort!(arts, 1:min(5,lastindex(arts)); by=mtime, rev=true)
     @info arts
     io = IOBuffer()
     write(io, """<ul class="recent">""")
