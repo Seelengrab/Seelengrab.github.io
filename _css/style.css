@@ -58,6 +58,7 @@ header {
 	align-content: space-between;
 	flex-direction: row;
 	width: 90%;
+	flex-wrap: wrap;
 }
 
 .blog-name {
@@ -160,10 +161,24 @@ a:hover {
     color: var(--link-active);
 }
 
-.franklin-content .container img {
+.franklin-content .imgcenter {
+	display: flex;
+	flex-direction: row;
+	justify-content: center;
+}
+
+.franklin-content img {
     border-radius: 10px;
     image-rendering: -webkit-optimize-contrast;
     image-rendering: crisp-edges;
+    padding: 0;
+    width: auto;
+    text-align: inherit;
+    max-width: 100%;
+}
+
+.table {
+	overflow-x: auto;
 }
 
 time {
@@ -171,7 +186,7 @@ time {
 }
 
 code {
-    font-family: 'FiraCode', monospace;
+    font-family: monospace;
     border-radius: 3px;
 }
 

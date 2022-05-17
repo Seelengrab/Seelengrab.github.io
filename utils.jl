@@ -8,13 +8,6 @@ function hfun_m1fill(vname)
   return pagevar("index", var)
 end
 
-function lx_baz(com, _)
-  # keep this first line
-  brace_content = Franklin.content(com.braces[1]) # input string
-  # do whatever you want here
-  return uppercase(brace_content)
-end
-
 function hfun_pagetags()
     tags = locvar("tags"; default=nothing)
     tags == nothing && return ""
@@ -32,7 +25,10 @@ end
 
 function articles()
     arts = map(d -> joinpath("./articles", d), readdir("./articles"))
-    filter!(d -> isfile(joinpath(d, "index.md")), arts)
+    filter!(arts) do d
+        isfile(joinpath(d, "index.md")) &&
+        isfile(joinpath(d, ".published"))
+    end
     arts
 end
 
@@ -44,7 +40,7 @@ function hfun_allarticles()
     write(io, "<ul>")
     for art in arts
         article = basename(art)
-        write(io, """<li><a href="$article/index.html">$article</a></li>\n""")
+        write(io, """<li><a href="$article/">$article</a></li>\n""")
     end
     write(io, "</ul>")
     return String(take!(io))
@@ -60,8 +56,24 @@ function hfun_recentarticles()
     write(io, """<ul class="recent">""")
     for art in @view(arts[1:min(5, end)])
         article = basename(art)
-        write(io, """<li><a href="$art/index.html">$article</a></li>\n""")
+        write(io, """<li><a href="$art/">$article</a></li>\n""")
     end
     write(io, "</ul>")
     return String(take!(io))
 end
+
+function hfun_out(args)
+    isempty(args) && return Franklin.html_err("no path given to {{output}} ")
+    rpath = args[end]
+
+    cpaths  = Franklin.form_codepaths(rpath)
+    outpath = cpaths.out_path
+
+    # does output exist?
+    isfile(outpath) || return Franklin.html_err("could not find the " *
+                                       "relevant output file.")
+    output = read(outpath, String)
+    lang = isone(length(args)) ? "" : first(args)
+    return Franklin.html_code(output, lang; class="code-output")
+end
+

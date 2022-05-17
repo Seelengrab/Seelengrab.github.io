@@ -121,6 +121,7 @@ instead, display a burger menu.
     display: flex;
     flex-wrap: wrap;
     width: auto;
+    overflow-x: auto;
   }
 
   nav {
