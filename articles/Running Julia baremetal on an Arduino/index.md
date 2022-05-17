@@ -26,7 +26,7 @@ dynamicness wherever you can.[^runtimenote]
 
 I'm already used to 1) due to regular optimization when helping people  on Slack and Discourse, and with better static
 compilation support inching ever closer over the past few years and me procrastinating writing my bachelors' thesis
-last monday, I thought to myself
+last week, I thought to myself
 
  1. Julia is based on LLVM and is basically already a compiled language.
  2. You've got some old arduinos lying around.
