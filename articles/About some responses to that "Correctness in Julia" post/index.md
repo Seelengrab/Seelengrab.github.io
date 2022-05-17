@@ -108,9 +108,32 @@ doesn't solve our problem, because as a matter of fact, [OffsetArrays.jl is usin
 Once again - the interfaces are all implemented correctly by `OffsetArrays.jl`. An interface doesn't help here when user code
 comes along and assumes more from their types than they guarantee.
 
-These issues are not exclusive to julia - there are whole [research languages](https://github.com/google-research/dex-lang) dedicated to this problem. Even just confined to indexing, it is very far from a solved problem. The situation right now, however, boils down to "check every
+These issues are not exclusive to julia - there are whole [research languages](https://github.com/google-research/dex-lang) dedicated to this problem. Even just confined to indexing, it is very far from solved. The situation right now, however, boils down to "check every
 access or manage to prove (or convince the compiler) that you don't need to". Or just hope code review catches it - in my opinion the worst,
-if most humane option.
+if most human option.
+
+### The meat of the criticism
+
+I guess the general complaint is about having testing deeper embedded in our culture as julia developers, and while I don't disagree with that
+idea, I think that complaint is a bit.. difficult to "fix", so to speak. Julia code in general seems well tested - lots and lots of packages
+have extensive testsuites and using CI for running them is deeply engrained in our culture (at least from my POV - your mileage may vary after
+all). The trouble is of course that due to the extreme genericity julia code allows, it's much easier than in other languages to run into edge
+cases the original author didn't anticipate. In and of itself that's both a good and a bad thing - good because it allows the oft-touted
+interplay between packages that "don't know about each other" to just-work(tm) (if implemented correctly), and bad because it means that the
+number of edge cases to consider is VASTLY larger than in more restrictive contexts[^specifications].
+
+In this context, "testing your code" very quickly transforms from "just check a single interface implementation" to "formally prove that
+anyone that correctly implements the interface you require can also expect your code to work correctly". This is a priori infeasible - for one,
+you don't even have the concrete implementation of the thing you may get at hand when writing your tests, so you can't even properly fall back to
+"just check a single interface implementation". This also has an upside - one comment mentioned that in Rust, if the author of some piece of code
+didn't anticipate a user of their datastructure to iterate over it, a user can't do anything other than wrapping the object and implementing
+the `IntoIterator` trait on their wrapper, while simultaneously having to forward all other parts of the wrapped object. In Julia, this _can_
+be added to the existing code post-fact - though doing so is called `type piracy` [^piracy] and very much frowned upon. It's usually better
+to upstream such changes, if they are useful for more people and make semantic sense on the datastructure in the first place.
+
+[^specifications]: Notably, interfaces don't help here either. While `interface` is often taken as "requirements my code must adhere to", in practice and as its often implemented in compilers, it's nothing more than "This type has these functions that operate on/with it implemented". If you add more conditions (such as "and the functions are implemented correctly", for whatever notion of "correctly" is appropriate here) than this to your definition, you're into specification territory - a vastly different beast, leading right back to formal methods. Check out [this blog post](https://hillelwayne.com/post/spec-composition/) by Hillel Wayne for a definition and some of the challenges that can arise with them. One way to alleviate this would be to use property based testing and automatic input generation - but that space has not arrived in julia ([yet](https://github.com/Seelengrab/PropCheck.jl)).
+
+[^piracy]: Type Piracy: Implementing a method for a function & object(s) you don't own in the "This is my own code" sense. In this example, a potential implementor neither owns `iterate` (that's owned by `Base`) nor the third-party library type.
 
 ## Fixing the most common issues
 
@@ -181,27 +204,6 @@ On one hand, I'm excited that people seem to have such a high bar for julia that
 high standard that it's sort of implicitly expected to have correctness already built in. It means that people really do expect & think about
 this stuff, which to me at least signals the start of a great change in how we do computing. On the other hand, I'm annoyed by those same
 expectations, because formal methods is bleeding edge research that's, arguably, a niche topic in regular software engineering to date.
-
-I guess the general complaint is about having testing deeper embedded in our culture as julia developers, and while I don't disagree with that
-idea, I think that complaint is a bit.. difficult to "fix", so to speak. Julia code in general seems well tested - lots and lots of packages
-have extensive testsuites and using CI for running them is deeply engrained in our culture (at least from my POV - your mileage may vary after
-all). The trouble is of course that due to the extreme genericity julia code allows, it's much easier than in other languages to run into edge
-cases the original author didn't anticipate. In and of itself that's both a good and a bad thing - good because it allows the oft-touted
-interplay between packages that "don't know about each other" to just-work(tm) (if implemented correctly), and bad because it means that the
-number of edge cases to consider is VASTLY larger than in more restrictive contexts[^specifications].
-
-In this context, "testing your code" very quickly transforms from "just check a single interface implementation" to "formally prove that
-anyone that correctly implements the interface you require can also expect your code to work correctly". This is a priori infeasible - for one,
-you don't even have the concrete implementation of the thing you may get at hand when writing your tests, so you can't even properly fall back to
-"just check a single interface implementation". This also has an upside - one comment mentioned that in Rust, if the author of some piece of code
-didn't anticipate a user of their datastructure to iterate over it, a user can't do anything other than wrapping the object and implementing
-the `IntoIterator` trait on their wrapper, while simultaneously having to forward all other parts of the wrapped object. In Julia, this _can_
-be added to the existing code post-fact - though doing so is called `type piracy` [^piracy] and very much frowned upon. It's usually better
-to upstream such changes, if they are useful for more people and make semantic sense on the datastructure in the first place.
-
-[^specifications]: Notably, interfaces don't help here either. While `interface` is often taken as "requirements my code must adhere to", in practice and as its often implemented in compilers, it's nothing more than "This type has these functions that operate on/with it implemented". If you add more conditions (such as "and the functions are implemented correctly", for whatever notion of "correctly" is appropriate here) than this to your definition, you're into specification territory - a vastly different beast, leading right back to formal methods. Check out [this blog post](https://hillelwayne.com/post/spec-composition/) by Hillel Wayne for a definition and some of the challenges that can arise with them.
-
-[^piracy]: Type Piracy: Implementing a method for a function & object(s) you don't own in the "This is my own code" sense. In this example, a potential implementor neither owns `iterate` (that's owned by `Base`) nor the third-party library type.
 
 ## Additional tidbits
 
