@@ -640,7 +640,7 @@ and after flashing it to the arduino we get...
 ~~~
 <p style="display: flex; justify-content: center;">
 <video style="max-width: 80%; width: auto; height: auto" controls>
-<source src="./blinking_led_h264.mp4" type="video/mp4"/>
+<source src="./blinking_led.webm" type="video/webm"/>
 Your browser does not support the video tag.
 </video>
 </p>
