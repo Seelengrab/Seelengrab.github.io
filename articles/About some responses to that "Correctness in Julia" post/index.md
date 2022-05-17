@@ -43,7 +43,7 @@ This code has a bug, specifically a bug about what a valid index is. As written,
 have `1` (or `length(A)` or any value inbetween) as a valid index. The general gist I got from comments about this was that "interfaces would
 have fixed this", but to me at least that isn't true - where would you place an interface boundary that a compiler can check such that this
 would be caught during compilation, when values of objects are not known? While julia is a dynamic language, it is very much compiled, so
-we definitely could add this.
+we definitely could add this (provided it's not a breaking change).
 
 Alas, it's not that simple, because this piece of code already expects at least one interface to hold and requires of their caller to follow
 additional requirements on top of those. For one, here's the requirements for a type that want to subtype `AbstractArray`, i.e. to adhere to
