@@ -167,8 +167,8 @@ have the exact same bug - it just shifts the "correctness" part to `quarterstart
 no more correct than the previously broken version.
 
 This, to me, comes down to the crux of the issue: Correctness is very, VERY hard. Most alternative formulations of algorithms that fundamentally
-express the same computation do little more than shift the correctness checks around. In the end, if you want to compute the same thing in all
-cases, you will have to handle the same edge cases, somewhere, somehow.
+express the same computation, once optimized performance wise, do little more than shift the correctness checks around. In the end, if you
+want to compute the same thing in all cases, you will have to handle the same edge cases, somewhere, somehow.
 
 Quite a few comments also lamented that without provable correctness, we'll never be able to guarantee that it is correct and will always have
 bugs. Circular argument aside, proving correctness brings us firmly into [formal methods](https://en.wikipedia.org/wiki/Formal_methods) territory.
@@ -179,10 +179,11 @@ expectations, because formal methods is bleeding edge research that's, arguably,
 
 I guess the general complaint is about having testing deeper embedded in our culture as julia developers, and while I don't disagree with that
 idea, I think that complaint is a bit.. difficult to "fix", so to speak. Julia code in general seems well tested - lots and lots of packages
-have extensive testsuites and using CI for running them is deeply engrained in our culture. The trouble is of course that due to the extreme
-genericity julia code allows, it's much easier than in other languages to run into edge cases the original author didn't anticipate. In and of
-itself that's both a good and a bad thing - good because it allows the oft-touted interplay between packages that "don't know about each other"
-to just-work(tm) (if implemented correctly), and bad because it means that the number of edge cases to consider is VASTLY larger than in more restrictive contexts[^specifications].
+have extensive testsuites and using CI for running them is deeply engrained in our culture (at least from my POV - your mileage may vary after
+all). The trouble is of course that due to the extreme genericity julia code allows, it's much easier than in other languages to run into edge
+cases the original author didn't anticipate. In and of itself that's both a good and a bad thing - good because it allows the oft-touted
+interplay between packages that "don't know about each other" to just-work(tm) (if implemented correctly), and bad because it means that the
+number of edge cases to consider is VASTLY larger than in more restrictive contexts[^specifications].
 
 In this context, "testing your code" very quickly transforms from "just check a single interface implementation" to "formally prove that
 anyone that correctly implements the interface you require can also expect your code to work correctly". This is a priori infeasible - for one,
@@ -204,4 +205,4 @@ it could be done & improved in julia. However, this is getting rather long, so I
 having formal interfaces yet, we also haven't written ourselves into a corner with having to support a (maybe suboptimal) version that's
 just a rehash of an existing flavor of interfaces. As much as that weighs heavy, it also means that the design space is very free to be
 explored - and I do hope that it becomes a more centralized focus. I'll probably write up my thoughts about this in the near-ish future,
-together with a sort of "what's the state of all of this in julia" to give some context.
+together with what I view as a sort of "what's the state of all of this in julia" to give some context.
