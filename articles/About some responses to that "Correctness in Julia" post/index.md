@@ -88,7 +88,7 @@ would be added to the `AbstractArray` interface, you quickly run into issues whe
 ```julia
 function foo(Arr::AbstractArray, i::Int)
     s = zero(eltype(Arr))
-    for i in i+2:length(Arr)-2
+    for i in (i+2):(length(Arr)-2)
         @inbounds s += Arr[i]
     end
     return s
@@ -136,9 +136,9 @@ And here's the second one:
 ```diff
 function foo(Arr::AbstractArray, i::Int)
     s = zero(eltype(Arr))
-+   idxs = i+2:length(Arr)-2
++   idxs = (i+2):(length(Arr)-2)
 +   checkbounds(Bool, Arr, idxs) || throw(ArgumentError("Indices `$idxs` computed from argument `$i` would be out of bounds."))
--   for i in i+2:length(Arr)-2idxs
+-   for i in (i+2):(length(Arr)-2)
 +   for i in idxs
         @inbounds s += Arr[i]
     end
