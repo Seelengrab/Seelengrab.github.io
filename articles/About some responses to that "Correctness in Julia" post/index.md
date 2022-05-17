@@ -152,7 +152,7 @@ What I will agree on though is that this part of the machinery is underdocumente
 is an actionable item that can and should be improved on. To be more precise: let's add `eachindex` to the optional methods to implement for
 types implementing `AbstractArray`. Additionally, `checkbounds` should be mentioned there as well, for implementing `getindex` correctly.
 
-[^statsbase]: The authors of the package in question acknowledge as much - it's just that they haven't had the time to fix those, since the code by now is 8 years old. That's older than `OffsetArrays.jl` and genericity about indices itself, for those taking notes.
+[^statsbase]: The authors of the package in question acknowledge as much - it's just that they haven't had the time to fix those, since the code by now is 8 years old. That's older than `OffsetArrays.jl` and genericity about indices itself, for those taking notes. I don't think that excuses that those bugs are still around, but I can understand how that code hasn't aged gracefully and bitrot instead.
 
 [^zig]: Zig is an interesting one here - if we write an equivalent function in Zig, but mark both `i` as well as the bounds check as `comptime`, the compiler can actually elide that check, because we lifted the computation for the check to compile time by requiring all information required for it to be known at compile time. A similar thing can happen in julia - if `i` is a compile-constant (or derivable as such) and propagated into this function, the compiler may compute the bounds check at compile time as well and elide it at runtime. This is not a guarantee though and it's only an optimization that's done when it's actually safe to do so - in that case, even the thrown error is completely eliminated from the result.
 
