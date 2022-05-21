@@ -654,12 +654,13 @@ julia to a, for this language, exotic architecture.
 
 ## Limitations
 
-Would I use this in production? Unlikely. It was finicky to get going and random segmentation faults during the compilation process are
-really bothersome. I do however believe that this area will steadily improve - after all, it's already working well on GPUs and FPGAs
-(or so I'm told - Julia on an FPGA is apparently some commercial offering from a company). From what I know, this is the first julia code
-to run native & baremetal on any Arduino/ATmega based chip, which in and of itself is already exciting. Still, the fact that there is no
-such thing as a runtime for this (julia uses libuv for tasks - getting that on an arduino seems challenging) means you're mostly going to
-be limited to self-written or vetted code that doesn't rely on too advanced features.
+Would I use this in production? Unlikely, but possibly in the future. It was finicky to get going and random segmentation faults during
+the compilation process itself are bothersome. But then again - nothing of this was part of a supported workflow, so I guess I'm happy
+that it has worked as well as it has! I do believe that this area will steadily improve - after all, it's already working
+well on GPUs and FPGAs (or so I'm told - Julia on an FPGA is apparently some commercial offering from a company). From what I know, this is
+the first julia code to run native & baremetal on any Arduino/ATmega based chip, which in and of itself is already exciting. Still, the fact
+that there is no such thing as a runtime for this (julia uses libuv for tasks - getting that on an arduino seems challenging) means you're
+mostly going to be limited to self-written or vetted code that doesn't rely on too advanced features, like a GC.
 
 Some niceties I'd like to have are better custom-allocator support, to allow actual proper "heap" allocation. I haven't tried yet,
 but I think immutable structs (which are often placed on the stack already, which the ATmega328p does have!) should work out of the box.
