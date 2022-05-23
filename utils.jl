@@ -74,10 +74,23 @@ function hfun_out(args)
     outpath = cpaths.out_path
 
     # does output exist?
-    isfile(outpath) || return Franklin.html_err("could not find the " *
-                                       "relevant output file.")
+    isfile(outpath) || return Franklin.html_err("could not find the relevant output file '$outpath'")
     output = read(outpath, String)
     lang = isone(length(args)) ? "" : first(args)
     return Franklin.html_code(output, lang; class="code-output")
 end
 
+function hfun_video(args)
+    !isone(length(args)) && return Franklin.html_err("no path given to {{video <path>}}")
+    path = only(args)
+
+    snippet = """
+              <p style="display: flex; justify-content: center;">
+                  <video style="max-width: 80%; width: auto; height: auto" controls preload="metadata">
+                      <source src='$path' type="video/webm"/>
+                      Your browser does not support the video tag.
+                  </video>
+              </p>
+              """
+    return snippet
+end
