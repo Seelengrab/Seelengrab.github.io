@@ -177,35 +177,7 @@ So the addresses we got from the register summary actually correspond 1:1 to SRA
 
 Translating what we've learned into code, our prototype now looks like this:
 
-```julia:./code/naive_pointers.jl
-const DDRB  = Ptr{UInt8}(36) # 0x25, but julia only provides conversion methods for `Int`
-const PORTB = Ptr{UInt8}(37) # 0x26
-
-# The bits we're interested in are the same bit as in the datasheet
-#                76543210
-const DDB1   = 0b00000010
-const PORTB1 = 0b00000010
-
-function main_pointers()
-    unsafe_store!(DDRB, DDB1)
-
-    while true
-        pb = unsafe_load(PORTB)
-        unsafe_store!(PORTB, pb | PORTB1) # enable LED
-
-        for _ in 1:500000
-            # busy loop
-        end
-
-        pb = unsafe_load(PORTB)
-        unsafe_store!(PORTB, pb & ~PORTB1) # disable LED
-
-        for _ in 1:500000
-            # busy loop
-        end
-    end
-end
-```
+\input{julia}{./naive_pointers.jl}
 
 We can write to our registers by storing some data at its address, as well as read from our register by reading from the same address.
 
@@ -261,10 +233,7 @@ With our custom LLVM built, we can define everything that's necessary for GPUCom
 
 We start by importing our dependencies, defining our target architecture and its [target triplet](https://wiki.osdev.org/Target_Triplet):
 
-```julia:./code/arduino.jl
-import Pkg # hide
-Pkg.activate(joinpath(@__DIR__, "articles/Running Julia baremetal on an Arduino/code")) # hide
-Pkg.add(["GPUCompiler", "LLVM"]) # hide
+```julia
 using GPUCompiler
 using LLVM
 
@@ -288,7 +257,7 @@ Since the julia runtime can't run on GPUs, GPUCompiler.jl also expects us to pro
 to do, like allocating memory on our target architecture or throwing exceptions. We're of course not going to do any of that, which is why
 we can just define an empty placeholder for these as well:
 
-```julia:./code/runtime.jl
+```julia
 module StaticRuntime
     # the runtime library
     signal_exception() = return
@@ -309,7 +278,7 @@ arduino. For now though, this "do nothing" runtime is sufficient.[^remarkruntime
 
 Now for the compilation. We first define a job for our pipeline:
 
-```julia:./code/native_job.jl
+```julia
 function native_job(@nospecialize(func), @nospecialize(types))
     @info "Creating compiler job for '$func($types)'"
     source = GPUCompiler.FunctionSpec(
@@ -325,7 +294,7 @@ end
 
 This then gets passed to our LLVM IR builder:
 
-```julia:./code/build_ir.jl
+```julia
 function build_ir(job, @nospecialize(func), @nospecialize(types))
     @info "Bulding LLVM IR for '$func($types)'"
     mi, _ = GPUCompiler.emit_julia(job)
@@ -349,7 +318,7 @@ symbols.
 
 After this, it's just emitting of AVR ASM:
 
-```julia:./code/build_obj.jl
+```julia
 function build_obj(@nospecialize(func), @nospecialize(types); kwargs...)
     job = native_job(func, types)
     @info "Compiling AVR ASM for '$func($types)'"
@@ -373,17 +342,17 @@ feature!
 
 When calling this like `build_obj(main_pointers, Tuple{})` (we don't pass any arguments to main), we receive a `String` containing binary data - this is our compiled object file:
 
-```julia:./code/build_naive_pointers.jl
+```julia
 using Markdown # hide
 obj = build_obj(main_pointers, Tuple{})
 println(Markdown.htmlesc(escape_string(obj))) # hide
 ```
 
-{{out ./code/build_naive_pointers.jl}}
+\input{plaintext}{./output/elf_pointers.out}
 
 Let's take a look at the disassembly, to confirm that this is what we expect to see:
 
-```julia:./code/disasm.jl
+```julia
 function builddump(fun, args)
     obj = build_obj(fun, args)
     mktemp() do path, io
@@ -396,7 +365,7 @@ end
 builddump(main_pointers, Tuple{})
 ```
 
-{{out avrasm ./code/disasm.jl}}
+\input{avrasm}{./output/main_pointers.out}
 
 Well that doesn't look good - where has all our code gone? All that's left is a single `out` followed by a single do-nothing relative jump.
 That's almost nothing if we compare to the equivalent C code:
@@ -452,37 +421,7 @@ enough, even though semantically they're a tiny bit different[^volatileatomics].
 
 With the atomics, our code now looks like this:
 
-```julia:./code/atomic_pointerset.jl
-const DDRB  = Ptr{UInt8}(36) # 0x25, but julia only provides conversion methods for `Int`
-const PORTB = Ptr{UInt8}(37) # 0x26
-
-# The bits we're interested in are the same bit as in the datasheet
-#                76543210
-const DDB1   = 0b00000010
-const PORTB1 = 0b00000010
-
-function main_atomic()
-    ddrb = unsafe_load(PORTB)
-    Core.Intrinsics.atomic_pointerset(DDRB, ddrb | DDB1, :sequentially_consistent)
-
-    while true
-        pb = unsafe_load(PORTB)
-        Core.Intrinsics.atomic_pointerset(PORTB, pb | PORTB1, :sequentially_consistent) # enable LED
-
-        for _ in 1:500000
-            # busy loop
-        end
-
-        pb = unsafe_load(PORTB)
-        Core.Intrinsics.atomic_pointerset(PORTB, pb & ~PORTB1, :sequentially_consistent) # disable LED
-
-        for _ in 1:500000
-            # busy loop
-        end
-    end
-end
-builddump(main_atomic, Tuple{}) # hide
-```
+\input{julia}{./atomic_pointerset.jl}
 
 !!! note
 	This is *not* how you'd usually use atomics in julia! I'm using intrinsics in hopes of communicating with LLVM directly, since
@@ -490,7 +429,7 @@ builddump(main_atomic, Tuple{}) # hide
 
 giving us the following assembly:
 
-{{out avrasm ./code/atomic_pointerset.jl}}
+\input{avrasm}{./output/main_atomic.out}
 
 At first glance, it doesn't look too bad. We have a little bit more code and we see some `out` instructions, so are we good? Unfortunately, no.
 There is only a single `rjmp`, meaning our nice busy loops got eliminated. I also had to insert those `unsafe_load` to not get a segfault
@@ -513,94 +452,24 @@ but I do know that it's not what we want. So atomics are not the way to go.
 
 The other option we still have at our disposal is writing inline LLVM-IR. Julia has great support for such constructs, so let's use them:
 
-```julia:./code/volatile_store.jl
-const DDRB  = Ptr{UInt8}(36)
-const PORTB = Ptr{UInt8}(37)
-const DDB1   = 0b00000010
-const PORTB1 = 0b00000010
-const PORTB_none = 0b00000000 # We don't need any other pin - set everything low
-
-function volatile_store!(x::Ptr{UInt8}, v::UInt8)
-    return Base.llvmcall(
-        """
-        %ptr = inttoptr i64 %0 to i8*
-        store volatile i8 %1, i8* %ptr, align 1
-        ret void
-        """,
-        Cvoid,
-        Tuple{Ptr{UInt8},UInt8},
-        x,
-        v
-    )
-end
-
-function main_volatile()
-    volatile_store!(DDRB, DDB1)
-
-    while true
-        volatile_store!(PORTB, PORTB1) # enable LED
-
-        for _ in 1:500000
-            # busy loop
-        end
-
-        volatile_store!(PORTB, PORTB_none) # disable LED
-
-        for _ in 1:500000
-            # busy loop
-        end
-    end
-end
-builddump(main_volatile, Tuple{}) # hide
-```
+\input{julia}{./volatile_store.jl}
 
 with our disassembly looking like:
 
-{{out avrasm ./code/volatile_store.jl}}
+\input{avrasm}{./output/main_volatile.out}
 
 Much better! Our `out` instructions save to the correct register. Unsurprisingly, all loops are still eliminated. We could force the variable
 from busy looping to exist by writing its value somewhere in SRAM, but that's a little wasteful. Instead, we can go one step deeper with our
 nesting and have inline AVR assembly in our inline LLVM-IR:
 
-```julia:./code/keep.jl
-function keep(x)
-    return Base.llvmcall(
-        """
-        call void asm sideeffect "", "X,~{memory}"(i16 %0)
-        ret void
-        """,
-        Cvoid,
-        Tuple{Int16},
-        x
-)
-end
-
-function main_keep()
-    volatile_store!(DDRB, DDB1)
-
-    while true
-        volatile_store!(PORTB, PORTB1) # enable LED
-
-        for y in Int16(1):Int16(3000)
-            keep(y)
-        end
-
-        volatile_store!(PORTB, PORTB_none) # disable LED
-
-        for y in Int16(1):Int16(3000)
-            keep(y)
-        end
-    end
-end
-builddump(main_keep, Tuple{}) # hide
-```
+\input{julia}{./keep.jl}
 
 This slightly unorthodox _not even `nop`_ construct pretends to execute an instruction that has some sideeffect, using our input as an argument.
 I've changed the loop to run for fewer iterations because it makes the assembly easier to read.
 
 Checking the disassembly we get...
 
-{{out avrasm ./code/keep.jl}}
+\input{avrasm}{./output/main_keep.out}
 
 Huzzah! Pretty much everything we'd expect to see is here:
 
