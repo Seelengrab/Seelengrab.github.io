@@ -44,7 +44,7 @@ function hfun_allarticles()
     for art in arts
         article = basename(art)
         date = Date(unix2datetime(mtime(joinpath(art, ".published"))))
-        write(io, """<li><a href='$art/'>$date - $article</a></li>\n""")
+        write(io, """<li><a href='./$article/'>$date - $article</a></li>\n""")
     end
     write(io, "</ul>")
     return String(take!(io))
