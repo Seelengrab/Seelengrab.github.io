@@ -197,7 +197,7 @@ same mechanism to have it produce AVR instead - the interface is extensible!
 ### Configuring LLVM
 
 The default julia install does not come with the AVR backend of LLVM enabled, so we have to build both LLVM and julia ourselves. Be
-sure to do this on one of the `1.8` betas, like `v1.8.0-beta3`. More recent commits currently break CPUCompiler.jl with this, which
+sure to do this on one of the `1.8` betas, like `v1.8.0-beta3`. More recent commits currently break GPUCompiler.jl with this, which
 should be fixed in the future as well.
 
 Julia luckily already supports building its dependencies, so we just have to make a few changes to two `Makefile`s, enabling the backend
@@ -310,7 +310,7 @@ function build_ir(job, @nospecialize(func), @nospecialize(types))
 end
 ```
 
-We first get a method instance from the julia runtime and ask CPUCompiler to give us the corresponding LLVM IR
+We first get a method instance from the julia runtime and ask GPUCompiler to give us the corresponding LLVM IR
 for our given job, i.e. for our target architecture. We don't use any libraries and we can't run codegen, but julia specific
 optimizations sure would be nice. They're also required for us, since they remove obviously dead code regarding the julia runtime,
 which we neither want nor can call into. If it would remain in the IR, we'd error out when trying to build our ASM, due to the missing
