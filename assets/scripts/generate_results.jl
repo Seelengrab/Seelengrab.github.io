@@ -17,11 +17,3 @@ function genplain(s::String)
         end
     end
 end
-
-# output
-
-genplain("script1.jl")
-
-# plots
-
-include("script2.jl")

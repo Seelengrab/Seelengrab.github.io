@@ -1,0 +1,14 @@
+
+/tmp/jl_3twwq9:     file format elf32-avr
+
+
+Disassembly of section .text:
+
+00000000 <julia_main_volatile>:
+   0:	82 e0       	ldi	r24, 0x02	; 2
+   2:	84 b9       	out	0x04, r24	; 4
+   4:	90 e0       	ldi	r25, 0x00	; 0
+   6:	85 b9       	out	0x05, r24	; 5
+   8:	95 b9       	out	0x05, r25	; 5
+   a:	00 c0       	rjmp	.+0      	; 0xc <julia_main_volatile+0xc>
+			a: R_AVR_13_PCREL	.text+0x6

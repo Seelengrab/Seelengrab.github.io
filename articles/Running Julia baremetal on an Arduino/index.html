@@ -1,0 +1,521 @@
+<!doctype html> <html lang=en > <meta charset=UTF-8 > <meta name=viewport  content="width=device-width, initial-scale=1"> <link rel=stylesheet  href="/libs/highlight/github.min.css"> <link rel=stylesheet  href="/css/franklin.css"> <link rel=stylesheet  href="/css/basic.css"> <link rel=stylesheet  href="/css/style.css"> <link rel=icon  href="/assets/favicon.png"> <title>Running Julia baremetal on an Arduino</title> <header> <a href="/" class=blog-name ><span>Voyage:</span><span id=title >Running Julia baremetal on an Arduino</span></a> <nav> <ul> <li><a href="/articles/">Articles</a> <!--<li><a href="/tag/">Tags</a>--> <li><a href="/about/">About</a> </ul> <img src="/assets/hamburger.svg" id=menu-icon > </nav> </header> <ul class=franklin-content  id=tags > <li><a href='/tag/julia/'>julia</a><li><a href='/tag/c/'>c</a><li><a href='/tag/arduino/'>arduino</a></ul> <div class=franklin-content ><h1 id=running_julia_baremetal_on_an_arduino ><a href="#running_julia_baremetal_on_an_arduino" class=header-anchor >Running Julia baremetal on an Arduino</a></h1> <div class=franklin-toc ><ol><li><a href="#preamble">Preamble</a><li><a href="#an_led_in_c">&lt;blink&gt; an LED in C</a><li><a href="#a_first_piece_of_julia_pseudocode">A first piece of julia pseudocode</a><ol><li><a href="#datasheets_memory_mapping">Datasheets &amp; Memory Mapping</a></ol><li><a href="#compiling_our_code">Compiling our code</a><ol><li><a href="#configuring_llvm">Configuring LLVM</a><li><a href="#defining_an_architecture">Defining an architecture</a></ol><li><a href="#looking_at_the_binary">Looking at the binary</a><ol><li><a href="#atomicity">Atomicity</a><li><a href="#inline_llvm-ir">Inline LLVM-IR</a></ol><li><a href="#an_led_in_julia">&lt;blink&gt; an LED in Julia</a><li><a href="#limitations">Limitations</a><li><a href="#links_references">Links &amp; references</a></ol></div> <h2 id=preamble ><a href="#preamble" class=header-anchor >Preamble</a></h2> <p>I don&#39;t really have much experience with microcontrollers. I&#39;ve played around with some arduinos before and the main entry point for my home network is a Raspberry Pi, but that&#39;s about it for recent experience. I did take a single course on microcontrollers a few years back, and I was hilariously bad at it, barely reaching a passing grade. Nonetheless, I am fascinated by them - they&#39;re low powered devices that we can program to make almost anything happen, as long as we&#39;re a little careful with ressource management and don&#39;t shoot ourselves in the foot.</p> <p>One thing that is always implicitly assumed when talking about julia is the requirement for a runtime and garbage collector. Most of the time, optimizing julia &#40;or any code, really&#41; comes down to two things:</p> <ol> <li><p>minimize the time spent running code you didn&#39;t write</p> <li><p>have as much code you want to run compiled to the native instructions of where you want to run it</p> </ol> <p>Requirement 1&#41; results more or less in &quot;don&#39;t talk to runtime &amp; GC if you don&#39;t have to&quot; and 2&#41; boils down to &quot;make sure you don&#39;t run unnecessary code, like an interpreter&quot; - i.e. statically compile your code and avoid dynamicness wherever you can.<sup id="fnref:runtimenote"><a href="#fndef:runtimenote" class=fnref >[1]</a></sup></p> <p>I&#39;m already used to 1&#41; due to regular optimization when helping people on Slack and Discourse, and with better static compilation support inching ever closer over the past few years and me procrastinating writing my bachelors&#39; thesis last week, I thought to myself</p> <ol> <li><p>Julia is based on LLVM and is basically already a compiled language.</p> <li><p>You&#39;ve got some old arduinos lying around.</p> <li><p>You know those take in some AVR blob to run as their code.</p> <li><p>LLVM has an AVR backend.</p> </ol> <p>and the very next thought I had was &quot;that can&#39;t be too difficult to get to work, right?&quot;.</p> <p>This is the &#40;unexpectedly short&#41; story of how I got julia code to run on an arduino.</p> <table class=fndef  id="fndef:runtimenote"> <tr> <td class=fndef-backref ><a href="#fnref:runtimenote">[1]</a> <td class=fndef-content >Funnily enough, once you&#39;re looking for it, you can find these concepts everywhere. For example, you want to minimize the number of times you talk to the linux kernel on an OS, since context switches are expensive. You also want to call into fast native code as often as possible, as is done in python by calling into C when performance is required. </table> <h2 id=an_led_in_c ><a href="#an_led_in_c" class=header-anchor >&lt;blink&gt; an LED in C</a></h2> <p>So, what are we dealing with? Well, even arduino don&#39;t sell these anymore:</p> <div class=left ><img src="./arduino.jpg" alt="" /></div> <p>This is an <a href="https://docs.arduino.cc/retired/boards/arduino-ethernet-rev3-without-poe">Arduino Ethernet R3</a>, a variation on the common Arduino UNO. It&#39;s the third revision, boasting an ATmega328p, an ethernet port, a slot for an SD card as well as 14 I/O pins, most of which are reserved. It has 32KiB of flash memory, 2KiB SRAM and 1KiB EEPROM. Its clock runs at measly 16 MHz, there&#39;s a serial interface for an external programmer and it weighs 28g.</p> <p>With this documentation, the <a href="https://www.arduino.cc/en/uploads/Main/arduino-ethernet-R3-schematic.pdf">schematic</a> for the board, the <a href="https://ww1.microchip.com/downloads/en/DeviceDoc/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf">datasheet</a> for the microcontroller and a good amount of &quot;you&#39;ve done harder things before&quot; I set out to achieve the simplest goal imaginable: Let the LED labeled <code>L9</code> &#40;see the lower left corner of the board in the image above, right above the <code>on</code> LED above the power connector&#41; blink.</p> <p>For comparison sake and to have a working implementation to check our arduino with, here&#39;s a C implementation of what we&#39;re trying to do:</p> <pre><code class="C hljs"><span class=hljs-meta >#<span class=hljs-keyword >include</span> <span class=hljs-string >&lt;avr/io.h&gt;</span></span>
+<span class=hljs-meta >#<span class=hljs-keyword >include</span> <span class=hljs-string >&lt;util/delay.h&gt;</span></span>
+
+<span class=hljs-meta >#<span class=hljs-keyword >define</span> MS_DELAY 3000</span>
+
+<span class=hljs-type >int</span> <span class="hljs-title function_">main</span> <span class=hljs-params >(<span class=hljs-type >void</span>)</span> {
+    DDRB |= _BV(DDB1);
+
+    <span class=hljs-keyword >while</span>(<span class=hljs-number >1</span>) {
+        PORTB |= _BV(PORTB1);
+
+        _delay_ms(MS_DELAY);
+
+        PORTB &amp;= ~_BV(PORTB1);
+
+        _delay_ms(MS_DELAY);
+    }
+}</code></pre> <p>This short piece of code does a few things. It first configures our LED-pin as an output, which we can do by setting pin <code>DDB1</code><sup id="fnref:ddb1pin"><a href="#fndef:ddb1pin" class=fnref >[2]</a></sup> in <code>DDRB</code> &#40;which is a contraction of &quot;<strong>D</strong>ata <strong>D</strong>irection <strong>R</strong>egister Port <strong>B</strong>&quot; - it controls whether a given I/O pin is interpreted as input or output&#41;. After that, it enters an infinite loop, where we first set our pin <code>PORTB1</code> on <code>PORTB</code> to <code>HIGH</code> &#40;or <code>1</code>&#41; to instruct our controller to power the LED. We then wait for <code>MS_DELAY</code> milliseconds, or 3 seconds. Then, we unpower the LED by setting the same <code>PORTB1</code> pin to <code>LOW</code> &#40;or <code>0</code>&#41;. Compiling &amp; flashing this code like so<sup id="fnref:compileflags"><a href="#fndef:compileflags" class=fnref >[3]</a></sup> :</p> <pre><code class="sh hljs">avr-gcc -Os -DF_CPU=16000000UL -mmcu=atmega328p -c -o blink_led.o blink_led.c
+avr-gcc -mmcu=atmega328p -o blink_led.elf blink_led.o
+avr-objcopy -O ihex blink_led.elf blink_led.hex
+avrdude -V -c arduino -p ATMEGA328P -P /dev/ttyACM0 -U flash:w:blink_led.hex</code></pre> <p>results in a nice, blinking LED.</p> <p>These few shell commands compile our <code>.c</code> soure code to an <code>.o</code> object file targeting our microcontroller, link it into an <code>.elf</code>, translate that to the Intel <code>.hex</code> format the controller expects and finally flash it to the controller with the appropriate settings for <code>avrdude</code>. Pretty basic stuff. It shouldn&#39;t be hard to translate this, so where&#39;s the catch?</p> <p>Well, most of the code above is not even C, but C preprocessor directives tailored to do exactly what we mean to do. We can&#39;t make use of them in julia and we can&#39;t import those <code>.h</code> files, so we&#39;ll have to figure out what they mean. I haven&#39;t checked, but I think not even <code>_delay_ms</code> is a function.</p> <p>On top of this, we don&#39;t have a convenient existing <code>avr-gcc</code> to compile julia to AVR for us. However, if we manage to produce a <code>.o</code> file, we should be able to make the rest of the existing toolchain work for us - after all, <code>avr-gcc</code> can&#39;t tell the difference between a julia-created <code>.o</code> and a <code>avr-gcc</code> created <code>.o</code>.</p> <p><table class=fndef  id="fndef:ddb1pin"> <tr> <td class=fndef-backref ><a href="#fnref:ddb1pin">[2]</a> <td class=fndef-content >Finding the right pin &amp; port took a while. The <a href="https://docs.arduino.cc/retired/boards/arduino-ethernet-rev3-without-poe#input-and-output">documentation states</a> that the LED is connected to &quot;digital pin 9&quot;, which is supported by the label <code>L9</code> next to the LED itself. It then goes on to say that on most of the arduino boards, this LED is placed on pin 13, which is used for SPI on mine instead. This is confusing, because the datasheet for our board connects this LED to pin 13 &#40;<code>PB1</code>, port B bit 1&#41; <em>on the controller</em>, which has a split trace leading to pin 9 of the <code>J5</code> pinout. I mistakenly thought &quot;pin 9&quot; referred to the microcontroller, and tried to control the LED through <code>PD5</code> &#40;port D, bit 5&#41; for quite some time, before I noticed my mistake. The upside was that I now had a known-good piece of code that I could compare to - even on the assembly level. </table> <table class=fndef  id="fndef:compileflags"> <tr> <td class=fndef-backref ><a href="#fnref:compileflags">[3]</a> <td class=fndef-content ><code>-DF_CPU&#61;16000000UL</code> is required for <code>_delay_ms</code> to figure out how to translate from milliseconds to &quot;number of cycles required to wait&quot; in our loops. While it&#39;s nice to have, it&#39;s not really required - we only have to wait <em>some</em> visibly distinct amount to notice the blinking, and as such, I&#39;ve skipped implementing this in the julia version. </table> </p> <h2 id=a_first_piece_of_julia_pseudocode ><a href="#a_first_piece_of_julia_pseudocode" class=header-anchor >A first piece of julia pseudocode</a></h2> <p>So with all that in mind, let&#39;s sketch out what we think our code should look like:</p> <pre><code class="julia hljs"><span class=hljs-keyword >const</span> DDRB = ??
+<span class=hljs-keyword >const</span> PORTB = ??
+
+<span class=hljs-keyword >function</span> main()
+    set_high(DDRB, DDB1) <span class=hljs-comment ># ??</span>
+
+    <span class=hljs-keyword >while</span> <span class=hljs-literal >true</span>
+        set_high(PORTB, PORTB1) <span class=hljs-comment ># ??</span>
+
+        <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >500000</span>
+            <span class=hljs-comment ># busy loop</span>
+        <span class=hljs-keyword >end</span>
+
+        set_low(PORTB, PORTB1) <span class=hljs-comment ># ??</span>
+
+        <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >500000</span>
+            <span class=hljs-comment ># busy loop</span>
+        <span class=hljs-keyword >end</span>
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span></code></pre> <p>From a high level, it&#39;s almost exactly the same. Set bits, busy loop, unset bits, loop. I&#39;ve marked all places where we have to do something, though we don&#39;t know exactly what yet, with <code>??</code>. All of these places are a bit interconnected, so let&#39;s dive in with the first big question: how can we replicate what the C-macros <code>DDRB</code>, <code>DDB1</code>, <code>PORTB</code> and <code>PORTB1</code> end up doing?</p> <h3 id=datasheets_memory_mapping ><a href="#datasheets_memory_mapping" class=header-anchor >Datasheets &amp; Memory Mapping</a></h3> <p>To answer this we first have to take a step back, forget that these are defined as macros in C and think back to what these represent. Both <code>DDRB</code> and <code>PORTB</code> reference specific I/O registers in our microcontroller. <code>DDB1</code> and <code>PORTB1</code> refer to the &#40;zero-based&#41; 1st bit of the respective register. In theory, we only have to set these bits in the registers above to make the controller blink our little LED. How do you set a bit in a specific register though? This has to be exposed to a high level language like C somehow. In assembly code we&#39;d just access the register natively, but save for inline assembly, we can&#39;t do that in either C or julia.</p> <p>When we take a look in our microcontroller datasheet, we can notice that there&#39;s a chapter <code>36. Register Summary</code> from page 621 onwards. This section is a register reference table. It has an entry for each register, specifying an address, a name, the name of each bit, as well as the page in the datasheet where further documentation, such as initial values, can be found. Scrolling to the end, we find what we&#39;ve been looking for:</p> <div class=table ><table><tr><th align=center >Address<th align=center >Name<th align=center >Bit 7<th align=center >Bit 6<th align=center >Bit 5<th align=center >Bit 4<th align=center >Bit 3<th align=center >Bit 2<th align=center >Bit 1<th align=center >Bit 0<th align=center >Page<tr><td align=center >0x05 &#40;0x25&#41;<td align=center >PORTB<td align=center >PORTB7<td align=center >PORTB6<td align=center >PORTB5<td align=center >PORTB4<td align=center >PORTB3<td align=center >PORTB2<td align=center >PORTB1<td align=center >PORTB0<td align=center >100<tr><td align=center >0x04 &#40;0x24&#41;<td align=center >DDRB<td align=center >DDR7<td align=center >DDR6<td align=center >DDR5<td align=center >DDR4<td align=center >DDR3<td align=center >DDR2<td align=center >DDR1<td align=center >DDR0<td align=center >100</table></div> <p>So <code>PORTB</code> is mapped to addresses <code>0x05</code> and <code>0x25</code>, while <code>DDRB</code> is mapped to addresses <code>0x04</code> and <code>0x24</code>. Which memory are those addresses referring to? We have EEPROM, flash memory as well as SRAM after all. Once again, the datasheet comes to our help: Chapter <code>8 AVR Memories</code> has a short section on our SRAM memory, with a very interesting figure:</p> <div class=imgcenter ><img src="./registermap.png" alt="Data Memory Map" /></div> <p>as well as this explanation:</p> <blockquote> <p>The first 32 locations &#91;of SRAM&#93; address the Register File, the next 64 locations the standard I/O memory, then 160 locations of Extended I/O memory, and the next 512/1024/1024/2048 locations address the internal data SRAM.</p> </blockquote> <p>So the addresses we got from the register summary actually correspond 1:1 to SRAM addresses<sup id="fnref:memoryindirection"><a href="#fndef:memoryindirection" class=fnref >[4]</a></sup>. Neat&#33;</p> <p>Translating what we&#39;ve learned into code, our prototype now looks like this:</p> <pre><code class="julia hljs"><span class=hljs-keyword >const</span> DDRB  = <span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}(<span class=hljs-number >36</span>) <span class=hljs-comment ># 0x25, but julia only provides conversion methods for `Int`</span>
+<span class=hljs-keyword >const</span> PORTB = <span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}(<span class=hljs-number >37</span>) <span class=hljs-comment ># 0x26</span>
+
+<span class=hljs-comment ># The bits we&#x27;re interested in are the same bit 1</span>
+<span class=hljs-comment >#                76543210</span>
+<span class=hljs-keyword >const</span> DDB1   = <span class=hljs-number >0b00000010</span>
+<span class=hljs-keyword >const</span> PORTB1 = <span class=hljs-number >0b00000010</span>
+
+<span class=hljs-keyword >function</span> main_pointers()
+    unsafe_store!(DDRB, DDB1)
+
+    <span class=hljs-keyword >while</span> <span class=hljs-literal >true</span>
+        pb = unsafe_load(PORTB)
+        unsafe_store!(PORTB, pb | PORTB1) <span class=hljs-comment ># enable LED</span>
+
+        <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >500000</span>
+            <span class=hljs-comment ># busy loop</span>
+        <span class=hljs-keyword >end</span>
+
+        pb = unsafe_load(PORTB)
+        unsafe_store!(PORTB, pb &amp; ~PORTB1) <span class=hljs-comment ># disable LED</span>
+
+        <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >500000</span>
+            <span class=hljs-comment ># busy loop</span>
+        <span class=hljs-keyword >end</span>
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span>
+builddump(main_pointers, <span class=hljs-built_in >Tuple</span>{})</code></pre> <p>We can write to our registers by storing some data at its address, as well as read from our register by reading from the same address.</p> <p>In one fell swoop, we got rid of all of our <code>??</code> at once&#33; This code now seemingly has everything the C version has, so let&#39;s start on the biggest unknown: how do we compile this?</p> <table class=fndef  id="fndef:memoryindirection"> <tr> <td class=fndef-backref ><a href="#fnref:memoryindirection">[4]</a> <td class=fndef-content >This is in contrast to more high level systems like an OS kernel, which utilizes virtual RAM and paging of sections of memory to give the illusion of being on the &quot;baremetal&quot; machine and handling raw pointers. </table> <h2 id=compiling_our_code ><a href="#compiling_our_code" class=header-anchor >Compiling our code</a></h2> <p>Julia has for quite some time now run on more than just x86&#40;_64&#41; - it also has support for Linux as well as macOS on ARM. These are, in large part, possible due to LLVM supporting ARM. However, there is one other large space where julia code can run directly: GPUs. For a while now, the package <a href="https://github.com/JuliaGPU/GPUCompiler.jl">GPUCompiler.jl</a> has done a lot of work to compile julia down to <code>NVPTX</code> and <code>AMDGPU</code>, the NVidia and AMD specific architectures supported by LLVM. Because GPUCompiler.jl interfaces with LLVM directly, we can hook into this same mechanism to have it produce AVR instead - the interface is extensible&#33;</p> <h3 id=configuring_llvm ><a href="#configuring_llvm" class=header-anchor >Configuring LLVM</a></h3> <p>The default julia install does not come with the AVR backend of LLVM enabled, so we have to build both LLVM and julia ourselves. Be sure to do this on one of the <code>1.8</code> betas, like <code>v1.8.0-beta3</code>. More recent commits currently break CPUCompiler.jl with this, which should be fixed in the future as well.</p> <p>Julia luckily already supports building its dependencies, so we just have to make a few changes to two <code>Makefile</code>s, enabling the backend</p> <pre><code class="patch hljs"><span class=hljs-comment >diff --git a/deps/llvm.mk b/deps/llvm.mk</span>
+<span class=hljs-comment >index 5afef0b83b..8d5bbd5e08 100644</span>
+<span class=hljs-comment >--- a/deps/llvm.mk</span>
+<span class=hljs-comment >+++ b/deps/llvm.mk</span>
+<span class=hljs-meta >@@ -60,7 +60,7 @@</span> endif
+ LLVM_LIB_FILE := libLLVMCodeGen.a
+ 
+ # Figure out which targets to build
+<span class=hljs-deletion >-LLVM_TARGETS := host;NVPTX;AMDGPU;WebAssembly;BPF</span>
+<span class=hljs-addition >+LLVM_TARGETS := host;NVPTX;AMDGPU;WebAssembly;BPF;AVR</span>
+ LLVM_EXPERIMENTAL_TARGETS :=
+ 
+ LLVM_CFLAGS :=</code></pre> <p>and instruct julia not to use the prebuilt LLVM by setting a flag in <code>Make.user</code>:</p> <pre><code class="Makefile hljs">USE_BINARYBUILDER_LLVM=0</code></pre>
+<p>Now, after running <code>make</code> to start the build process, LLVM is downloaded, patched &amp; built from source and made available to our julia code. The whole LLVM compilation took about 40 minutes on my laptop. I honestly expected worse&#33;</p>
+<h3 id=defining_an_architecture ><a href="#defining_an_architecture" class=header-anchor >Defining an architecture</a></h3>
+<p>With our custom LLVM built, we can define everything that&#39;s necessary for GPUCompiler.jl to figure out what we want.</p>
+<p>We start by importing our dependencies, defining our target architecture and its <a href="https://wiki.osdev.org/Target_Triplet">target triplet</a>:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >using</span> GPUCompiler
+<span class=hljs-keyword >using</span> LLVM
+
+<span class=hljs-comment >#####</span>
+<span class=hljs-comment ># Compiler Target</span>
+<span class=hljs-comment >#####</span>
+
+<span class=hljs-keyword >struct</span> Arduino &lt;: GPUCompiler.AbstractCompilerTarget <span class=hljs-keyword >end</span>
+
+GPUCompiler.llvm_triple(::Arduino) = <span class=hljs-string >&quot;avr-unknown-unkown&quot;</span>
+GPUCompiler.runtime_slug(::GPUCompiler.CompilerJob{Arduino}) = <span class=hljs-string >&quot;native_avr-jl_blink&quot;</span>
+
+<span class=hljs-keyword >struct</span> ArduinoParams &lt;: GPUCompiler.AbstractCompilerParams <span class=hljs-keyword >end</span></code></pre>
+<p>We&#39;re targeting a machine that&#39;s running <code>avr</code>, with no known vendor and no OS - we&#39;re baremetal after all. We&#39;re also providing a runtime slug to identify our binary by. We&#39;re also defining a dummy struct to hold additional parameters for our target architecture. We don&#39;t require any, so we can just leave it empty and otherwise ignore it.</p>
+<p>Since the julia runtime can&#39;t run on GPUs, GPUCompiler.jl also expects us to provide a replacement module for various operations we might want to do, like allocating memory on our target architecture or throwing exceptions. We&#39;re of course not going to do any of that, which is why we can just define an empty placeholder for these as well:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >module</span> StaticRuntime
+    <span class=hljs-comment ># the runtime library</span>
+    signal_exception() = <span class=hljs-keyword >return</span>
+    malloc(sz) = <span class=hljs-literal >C_NULL</span>
+    report_oom(sz) = <span class=hljs-keyword >return</span>
+    report_exception(ex) = <span class=hljs-keyword >return</span>
+    report_exception_name(ex) = <span class=hljs-keyword >return</span>
+    report_exception_frame(idx, func, file, line) = <span class=hljs-keyword >return</span>
+<span class=hljs-keyword >end</span>
+
+GPUCompiler.runtime_module(::GPUCompiler.CompilerJob{&lt;:<span class=hljs-built_in >Any</span>,ArduinoParams}) = StaticRuntime
+GPUCompiler.runtime_module(::GPUCompiler.CompilerJob{Arduino}) = StaticRuntime
+GPUCompiler.runtime_module(::GPUCompiler.CompilerJob{Arduino,ArduinoParams}) = StaticRuntime</code></pre>
+<p>In the future, these calls may be used to provide a simple bump allocator or report exceptions via the serial bus for other code targeting the arduino. For now though, this &quot;do nothing&quot; runtime is sufficient.<sup id="fnref:remarkruntime"><a href="#fndef:remarkruntime" class=fnref >[5]</a></sup></p>
+<p>Now for the compilation. We first define a job for our pipeline:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >function</span> native_job(<span class=hljs-meta >@nospecialize</span>(func), <span class=hljs-meta >@nospecialize</span>(types))
+    <span class=hljs-meta >@info</span> <span class=hljs-string >&quot;Creating compiler job for &#x27;<span class=hljs-variable >$func</span>(<span class=hljs-variable >$types</span>)&#x27;&quot;</span>
+    source = GPUCompiler.FunctionSpec(
+                func, <span class=hljs-comment ># our function</span>
+                Base.to_tuple_type(types), <span class=hljs-comment ># its signature</span>
+                <span class=hljs-literal >false</span>, <span class=hljs-comment ># whether this is a GPU kernel</span>
+                GPUCompiler.safe_name(repr(func))) <span class=hljs-comment ># the name to use in the asm</span>
+    target = Arduino()
+    params = ArduinoParams()
+    job = GPUCompiler.CompilerJob(target, source, params)
+<span class=hljs-keyword >end</span></code></pre>
+<p>This then gets passed to our LLVM IR builder:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >function</span> build_ir(job, <span class=hljs-meta >@nospecialize</span>(func), <span class=hljs-meta >@nospecialize</span>(types))
+    <span class=hljs-meta >@info</span> <span class=hljs-string >&quot;Bulding LLVM IR for &#x27;<span class=hljs-variable >$func</span>(<span class=hljs-variable >$types</span>)&#x27;&quot;</span>
+    mi, _ = GPUCompiler.emit_julia(job)
+    ir, ir_meta = GPUCompiler.emit_llvm(
+                    job, <span class=hljs-comment ># our job</span>
+                    mi; <span class=hljs-comment ># the method instance to compile</span>
+                    libraries=<span class=hljs-literal >false</span>, <span class=hljs-comment ># whether this code uses libraries</span>
+                    deferred_codegen=<span class=hljs-literal >false</span>, <span class=hljs-comment ># is there runtime codegen?</span>
+                    optimize=<span class=hljs-literal >true</span>, <span class=hljs-comment ># do we want to optimize the llvm?</span>
+                    only_entry=<span class=hljs-literal >false</span>, <span class=hljs-comment ># is this an entry point?</span>
+                    ctx=JuliaContext()) <span class=hljs-comment ># the LLVM context to use</span>
+    <span class=hljs-keyword >return</span> ir, ir_meta
+<span class=hljs-keyword >end</span></code></pre>
+<p>We first get a method instance from the julia runtime and ask CPUCompiler to give us the corresponding LLVM IR for our given job, i.e. for our target architecture. We don&#39;t use any libraries and we can&#39;t run codegen, but julia specific optimizations sure would be nice. They&#39;re also required for us, since they remove obviously dead code regarding the julia runtime, which we neither want nor can call into. If it would remain in the IR, we&#39;d error out when trying to build our ASM, due to the missing symbols.</p>
+<p>After this, it&#39;s just emitting of AVR ASM:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >function</span> build_obj(<span class=hljs-meta >@nospecialize</span>(func), <span class=hljs-meta >@nospecialize</span>(types); kwargs...)
+    job = native_job(func, types)
+    <span class=hljs-meta >@info</span> <span class=hljs-string >&quot;Compiling AVR ASM for &#x27;<span class=hljs-variable >$func</span>(<span class=hljs-variable >$types</span>)&#x27;&quot;</span>
+    ir, ir_meta = build_ir(job, func, types)
+    obj, _ = GPUCompiler.emit_asm(
+                job, <span class=hljs-comment ># our job</span>
+                ir; <span class=hljs-comment ># the IR we got</span>
+                strip=<span class=hljs-literal >true</span>, <span class=hljs-comment ># should the binary be stripped of debug info?</span>
+                validate=<span class=hljs-literal >true</span>, <span class=hljs-comment ># should the LLVM IR be validated?</span>
+                format=LLVM.API.LLVMObjectFile) <span class=hljs-comment ># What format would we like to create?</span>
+    <span class=hljs-keyword >return</span> obj
+<span class=hljs-keyword >end</span></code></pre>
+<p>We&#39;re also going to strip out debug info since we can&#39;t debug anyway and we&#39;re additionally asking LLVM to validate our IR - a very useful feature&#33;</p>
+<table class=fndef  id="fndef:remarkruntime">
+    <tr>
+        <td class=fndef-backref ><a href="#fnref:remarkruntime">[5]</a>
+        <td class=fndef-content >The eagle eyed may notice that this is suspiciously similar to what one needs for Rust - something to allocate and something to report errors. This is no coincidence - it&#39;s the minimum required for a language that usually has a runtime that handles things like signals and allocation of memory for you. Spinning this further could lead one to think that Rust too is garbage collected, since you never have to call <code>malloc</code> and <code>free</code> yourself - it&#39;s all handled by the runtime &amp; compiler, which inserts calls to these &#40;or another allocator&#41; in the appropriate places.
+    
+</table>
+
+<h2 id=looking_at_the_binary ><a href="#looking_at_the_binary" class=header-anchor >Looking at the binary</a></h2>
+<p>When calling this like <code>build_obj&#40;main_pointers, Tuple&#123;&#125;&#41;</code> &#40;we don&#39;t pass any arguments to main&#41;, we receive a <code>String</code> containing binary data - this is our compiled object file:</p>
+<pre><code class="julia hljs">obj = build_obj(main_pointers, <span class=hljs-built_in >Tuple</span>{})</code></pre>
+<pre><code class="plaintext hljs">\x7fELF\x01\x01\x01\0\0\0\0\0\0\0\0\0\x01\0S\0\x01\0\0\0\0\0\0\0\0\0\0\0\xf8\0\0\0\x02\0\0\x004\0\0\0\0\0(\0\x05\0\x01\0\x82\xe0\x84\xb9\0\xc0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\a\0\0\0\0\0\0\0\0\0\0\0\x04\0\xf1\xff\0\0\0\0\0\0\0\0\0\0\0\0\x03\0\x02\0\e\0\0\0\0\0\0\0\x06\0\0\0\x12\0\x02\0?\0\0\0\0\0\0\0\0\0\0\0\x10\0\0\0\f\0\0\0\0\0\0\0\0\0\0\0\x10\0\0\0\x04\0\0\0\x03\x02\0\0\x04\0\0\0\0.rela.text\0__do_clear_bss\0julia_main_pointers\0.strtab\0.symtab\0__do_copy_data\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0/\0\0\0\x03\0\0\0\0\0\0\0\0\0\0\0\xa8\0\0\0N\0\0\0\0\0\0\0\0\0\0\0\x01\0\0\0\0\0\0\0\x06\0\0\0\x01\0\0\0\x06\0\0\0\0\0\0\x004\0\0\0\x06\0\0\0\0\0\0\0\0\0\0\0\x04\0\0\0\0\0\0\0\x01\0\0\0\x04\0\0\0\0\0\0\0\0\0\0\0\x9c\0\0\0\f\0\0\0\x04\0\0\0\x02\0\0\0\x04\0\0\0\f\0\0\x007\0\0\0\x02\0\0\0\0\0\0\0\0\0\0\0&lt;\0\0\0`\0\0\0\x01\0\0\0\x03\0\0\0\x04\0\0\0\x10\0\0\0</code></pre>
+<p>Let&#39;s take a look at the disassembly, to confirm that this is what we expect to see:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >function</span> builddump(fun, args)
+    obj = build_obj(fun, args)
+    mktemp() <span class=hljs-keyword >do</span> path, io
+        write(io, obj)
+        flush(io)
+        str = read(<span class=hljs-string >`avr-objdump -dr <span class=hljs-variable >$path</span>`</span>, <span class=hljs-built_in >String</span>)
+    <span class=hljs-keyword >end</span> |&gt; print
+<span class=hljs-keyword >end</span>
+builddump(main_pointers, <span class=hljs-built_in >Tuple</span>{})</code></pre>
+<pre><code class="avrasm hljs">
+/tmp/jl_uOAUKI:     file format elf32-avr
+
+
+Disassembly of section .text:
+
+<span class=hljs-number >00000000</span> &lt;julia_main_pointers&gt;:
+   <span class=hljs-number >0</span>:	<span class=hljs-number >82</span> e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r24</span>, <span class=hljs-number >0x02</span>	<span class=hljs-comment >; 2</span>
+   <span class=hljs-number >2</span>:	<span class=hljs-number >84</span> b9       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x04</span>, <span class=hljs-built_in >r24</span>	<span class=hljs-comment >; 4</span>
+   <span class=hljs-number >4</span>:	<span class=hljs-number >00</span> c0       	<span class=hljs-keyword >rjmp</span>	.+<span class=hljs-number >0</span>      	<span class=hljs-comment >; 0x6 &lt;julia_main_pointers+0x6&gt;</span>
+			<span class=hljs-number >4</span>: R_AVR_13_PCREL	.text+<span class=hljs-number >0x4</span>
+</code></pre>
+<p>Well that doesn&#39;t look good - where has all our code gone? All that&#39;s left is a single <code>out</code> followed by a single do-nothing relative jump. That&#39;s almost nothing if we compare to the equivalent C code:</p>
+<pre><code class="sh hljs">$ avr-objdump -d blink_led.elf</code></pre>
+<pre><code class="avrasm hljs">[...]
+<span class=hljs-number >00000080</span> &lt;main&gt;:
+  <span class=hljs-number >80</span>:	<span class=hljs-number >21</span> <span class=hljs-number >9</span>a       	<span class=hljs-keyword >sbi</span>	<span class=hljs-number >0x04</span>, <span class=hljs-number >1</span>	<span class=hljs-comment >; 4</span>
+  <span class=hljs-number >82</span>:	<span class=hljs-number >2</span>f ef       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r18</span>, <span class=hljs-number >0xFF</span>	<span class=hljs-comment >; 255</span>
+  <span class=hljs-number >84</span>:	<span class=hljs-number >8</span>b e7       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r24</span>, <span class=hljs-number >0x7B</span>	<span class=hljs-comment >; 123</span>
+  <span class=hljs-number >86</span>:	<span class=hljs-number >92</span> e9       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r25</span>, <span class=hljs-number >0x92</span>	<span class=hljs-comment >; 146</span>
+  <span class=hljs-number >88</span>:	<span class=hljs-number >21</span> <span class=hljs-number >50</span>       	<span class=hljs-keyword >subi</span>	<span class=hljs-built_in >r18</span>, <span class=hljs-number >0x01</span>	<span class=hljs-comment >; 1</span>
+  <span class=hljs-number >8</span>a:	<span class=hljs-number >80</span> <span class=hljs-number >40</span>       	<span class=hljs-keyword >sbci</span>	<span class=hljs-built_in >r24</span>, <span class=hljs-number >0x00</span>	<span class=hljs-comment >; 0</span>
+  <span class=hljs-number >8</span>c:	<span class=hljs-number >90</span> <span class=hljs-number >40</span>       	<span class=hljs-keyword >sbci</span>	<span class=hljs-built_in >r25</span>, <span class=hljs-number >0x00</span>	<span class=hljs-comment >; 0</span>
+  <span class=hljs-number >8</span>e:	e1 f7       	<span class=hljs-keyword >brne</span>	.<span class=hljs-number >-8</span>      	<span class=hljs-comment >; 0x88 &lt;main+0x8&gt;</span>
+  <span class=hljs-number >90</span>:	<span class=hljs-number >00</span> c0       	<span class=hljs-keyword >rjmp</span>	.+<span class=hljs-number >0</span>      	<span class=hljs-comment >; 0x92 &lt;main+0x12&gt;</span>
+  <span class=hljs-number >92</span>:	<span class=hljs-number >00</span> <span class=hljs-number >00</span>       	<span class=hljs-keyword >nop</span>
+  <span class=hljs-number >94</span>:	<span class=hljs-number >29</span> <span class=hljs-number >98</span>       	<span class=hljs-keyword >cbi</span>	<span class=hljs-number >0x05</span>, <span class=hljs-number >1</span>	<span class=hljs-comment >; 5</span>
+  <span class=hljs-number >96</span>:	<span class=hljs-number >2</span>f ef       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r18</span>, <span class=hljs-number >0xFF</span>	<span class=hljs-comment >; 255</span>
+  <span class=hljs-number >98</span>:	<span class=hljs-number >8</span>b e7       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r24</span>, <span class=hljs-number >0x7B</span>	<span class=hljs-comment >; 123</span>
+  <span class=hljs-number >9</span>a:	<span class=hljs-number >92</span> e9       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r25</span>, <span class=hljs-number >0x92</span>	<span class=hljs-comment >; 146</span>
+  <span class=hljs-number >9</span>c:	<span class=hljs-number >21</span> <span class=hljs-number >50</span>       	<span class=hljs-keyword >subi</span>	<span class=hljs-built_in >r18</span>, <span class=hljs-number >0x01</span>	<span class=hljs-comment >; 1</span>
+  <span class=hljs-number >9</span>e:	<span class=hljs-number >80</span> <span class=hljs-number >40</span>       	<span class=hljs-keyword >sbci</span>	<span class=hljs-built_in >r24</span>, <span class=hljs-number >0x00</span>	<span class=hljs-comment >; 0</span>
+  a0:	<span class=hljs-number >90</span> <span class=hljs-number >40</span>       	<span class=hljs-keyword >sbci</span>	<span class=hljs-built_in >r25</span>, <span class=hljs-number >0x00</span>	<span class=hljs-comment >; 0</span>
+  a2:	e1 f7       	<span class=hljs-keyword >brne</span>	.<span class=hljs-number >-8</span>      	<span class=hljs-comment >; 0x9c &lt;main+0x1c&gt;</span>
+  a4:	<span class=hljs-number >00</span> c0       	<span class=hljs-keyword >rjmp</span>	.+<span class=hljs-number >0</span>      	<span class=hljs-comment >; 0xa6 &lt;main+0x26&gt;</span>
+  a6:	<span class=hljs-number >00</span> <span class=hljs-number >00</span>       	<span class=hljs-keyword >nop</span>
+  a8:	ec cf       	<span class=hljs-keyword >rjmp</span>	.<span class=hljs-number >-40</span>     	<span class=hljs-comment >; 0x82 &lt;main+0x2&gt;</span>
+[...]</code></pre>
+<p>This sets the same bit as our code on <code>0x04</code> &#40;remember, this was <code>DDRB</code>&#41;, initializes a loop variable over three words, branches, jumps, sets and clears bits.. Basically everything we&#39;d expect our code to do as well, so what gives?</p>
+<p>In order to figure out what&#39;s going on, we have to remember that julia, LLVM and gcc are optimizing compilers. If they can deduce that some piece of code has no visible effect, for example because you&#39;re always overwriting previous loop iterations with known constants, the compiler is usually free to just delete the superfluous writes because you can&#39;t observe the difference anyway.</p>
+<p>Here, I believe two things happened:</p>
+<ol>
+<li><p>The initial <code>unsafe_load</code> from our pointer triggered undefined behavior, since the initial value of a given pointer is not defined. LLVM saw that, saw that we actually used the read value and eliminated both read &amp; store due to it being undefined behavior and it being free to pick the value it &quot;read&quot; to be the one we wrote, making the load/store pair superfluous.</p>
+
+<li><p>The now empty loops serve no purpose, so they got removed as well.</p>
+
+</ol>
+<p>In C, you can solve this problem by using <code>volatile</code>. That keyword is a very strict way of telling the compiler &quot;Look, I want every single read &amp; write from and to this variable to happen. Don&#39;t eliminate any and don&#39;t shuffle them around &#40;except for non-volatile, you&#39;re free to shuffle those around&#41;&quot;. In contrast, julia doesn&#39;t have this concept at all - but we do have atomics. So let&#39;s use them to see if they&#39;re enough, even though semantically they&#39;re a tiny bit different<sup id="fnref:volatileatomics"><a href="#fndef:volatileatomics" class=fnref >[6]</a></sup>.</p>
+<h3 id=atomicity ><a href="#atomicity" class=header-anchor >Atomicity</a></h3>
+<p>With the atomics, our code now looks like this:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >const</span> DDRB  = <span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}(<span class=hljs-number >36</span>) <span class=hljs-comment ># 0x25, but julia only provides conversion methods for `Int`</span>
+<span class=hljs-keyword >const</span> PORTB = <span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}(<span class=hljs-number >37</span>) <span class=hljs-comment ># 0x26</span>
+
+<span class=hljs-comment ># The bits we&#x27;re interested in are the same bit as in the datasheet</span>
+<span class=hljs-comment >#                76543210</span>
+<span class=hljs-keyword >const</span> DDB1   = <span class=hljs-number >0b00000010</span>
+<span class=hljs-keyword >const</span> PORTB1 = <span class=hljs-number >0b00000010</span>
+
+<span class=hljs-keyword >function</span> main_atomic()
+    ddrb = unsafe_load(PORTB)
+    Core.Intrinsics.atomic_pointerset(DDRB, ddrb | DDB1, :sequentially_consistent)
+
+    <span class=hljs-keyword >while</span> <span class=hljs-literal >true</span>
+        pb = unsafe_load(PORTB)
+        Core.Intrinsics.atomic_pointerset(PORTB, pb | PORTB1, :sequentially_consistent) <span class=hljs-comment ># enable LED</span>
+
+        <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >500000</span>
+            <span class=hljs-comment ># busy loop</span>
+        <span class=hljs-keyword >end</span>
+
+        pb = unsafe_load(PORTB)
+        Core.Intrinsics.atomic_pointerset(PORTB, pb &amp; ~PORTB1, :sequentially_consistent) <span class=hljs-comment ># disable LED</span>
+
+        <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >500000</span>
+            <span class=hljs-comment ># busy loop</span>
+        <span class=hljs-keyword >end</span>
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span></code></pre>
+<div class="admonition note"><p class=admonition-title >Note</p><p>This is <em>not</em> how you&#39;d usually use atomics in julia&#33; I&#39;m using intrinsics in hopes of communicating with LLVM directly, since I&#39;m dealing with pointers here. For more high-level code, you&#39;d use <a href="https://docs.julialang.org/en/v1/base/multi-threading/#Base.@atomic"><code>@atomic</code></a> operations on struct fields.</p>
+</div>
+<p>giving us the following assembly:</p>
+<pre><code class="avrasm hljs">
+/tmp/jl_UfT1Rf:     file format elf32-avr
+
+
+Disassembly of section .text:
+
+<span class=hljs-number >00000000</span> &lt;julia_main_atomic&gt;:
+   <span class=hljs-number >0</span>:	<span class=hljs-number >85</span> b1       	<span class=hljs-keyword >in</span>	<span class=hljs-built_in >r24</span>, <span class=hljs-number >0x05</span>	<span class=hljs-comment >; 5</span>
+   <span class=hljs-number >2</span>:	<span class=hljs-number >82</span> <span class=hljs-number >60</span>       	<span class=hljs-keyword >ori</span>	<span class=hljs-built_in >r24</span>, <span class=hljs-number >0x02</span>	<span class=hljs-comment >; 2</span>
+   <span class=hljs-number >4</span>:	a4 e2       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r26</span>, <span class=hljs-number >0x24</span>	<span class=hljs-comment >; 36</span>
+   <span class=hljs-number >6</span>:	b0 e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r27</span>, <span class=hljs-number >0x00</span>	<span class=hljs-comment >; 0</span>
+   <span class=hljs-number >8</span>:	<span class=hljs-number >0</span>f b6       	<span class=hljs-keyword >in</span>	<span class=hljs-built_in >r0</span>, <span class=hljs-number >0x3f</span>	<span class=hljs-comment >; 63</span>
+   a:	f8 <span class=hljs-number >94</span>       	<span class=hljs-keyword >cli</span>
+   c:	<span class=hljs-number >8</span>c <span class=hljs-number >93</span>       	<span class=hljs-keyword >st</span>	<span class=hljs-built_in >X</span>, <span class=hljs-built_in >r24</span>
+   e:	<span class=hljs-number >0</span>f be       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x3f</span>, <span class=hljs-built_in >r0</span>	<span class=hljs-comment >; 63</span>
+  <span class=hljs-number >10</span>:	<span class=hljs-number >85</span> b1       	<span class=hljs-keyword >in</span>	<span class=hljs-built_in >r24</span>, <span class=hljs-number >0x05</span>	<span class=hljs-comment >; 5</span>
+  <span class=hljs-number >12</span>:	a5 e2       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r26</span>, <span class=hljs-number >0x25</span>	<span class=hljs-comment >; 37</span>
+  <span class=hljs-number >14</span>:	b0 e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r27</span>, <span class=hljs-number >0x00</span>	<span class=hljs-comment >; 0</span>
+  <span class=hljs-number >16</span>:	<span class=hljs-number >98</span> <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r25</span>, <span class=hljs-built_in >r24</span>
+  <span class=hljs-number >18</span>:	<span class=hljs-number >92</span> <span class=hljs-number >60</span>       	<span class=hljs-keyword >ori</span>	<span class=hljs-built_in >r25</span>, <span class=hljs-number >0x02</span>	<span class=hljs-comment >; 2</span>
+  <span class=hljs-number >1</span>a:	<span class=hljs-number >0</span>f b6       	<span class=hljs-keyword >in</span>	<span class=hljs-built_in >r0</span>, <span class=hljs-number >0x3f</span>	<span class=hljs-comment >; 63</span>
+  <span class=hljs-number >1</span>c:	f8 <span class=hljs-number >94</span>       	<span class=hljs-keyword >cli</span>
+  <span class=hljs-number >1</span>e:	<span class=hljs-number >9</span>c <span class=hljs-number >93</span>       	<span class=hljs-keyword >st</span>	<span class=hljs-built_in >X</span>, <span class=hljs-built_in >r25</span>
+  <span class=hljs-number >20</span>:	<span class=hljs-number >0</span>f be       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x3f</span>, <span class=hljs-built_in >r0</span>	<span class=hljs-comment >; 63</span>
+  <span class=hljs-number >22</span>:	<span class=hljs-number >98</span> <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r25</span>, <span class=hljs-built_in >r24</span>
+  <span class=hljs-number >24</span>:	<span class=hljs-number >9</span>d <span class=hljs-number >7</span>f       	<span class=hljs-keyword >andi</span>	<span class=hljs-built_in >r25</span>, <span class=hljs-number >0xFD</span>	<span class=hljs-comment >; 253</span>
+  <span class=hljs-number >26</span>:	<span class=hljs-number >0</span>f b6       	<span class=hljs-keyword >in</span>	<span class=hljs-built_in >r0</span>, <span class=hljs-number >0x3f</span>	<span class=hljs-comment >; 63</span>
+  <span class=hljs-number >28</span>:	f8 <span class=hljs-number >94</span>       	<span class=hljs-keyword >cli</span>
+  <span class=hljs-number >2</span>a:	<span class=hljs-number >9</span>c <span class=hljs-number >93</span>       	<span class=hljs-keyword >st</span>	<span class=hljs-built_in >X</span>, <span class=hljs-built_in >r25</span>
+  <span class=hljs-number >2</span>c:	<span class=hljs-number >0</span>f be       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x3f</span>, <span class=hljs-built_in >r0</span>	<span class=hljs-comment >; 63</span>
+  <span class=hljs-number >2</span>e:	<span class=hljs-number >00</span> c0       	<span class=hljs-keyword >rjmp</span>	.+<span class=hljs-number >0</span>      	<span class=hljs-comment >; 0x30 &lt;julia_main_atomic+0x30&gt;</span>
+			<span class=hljs-number >2</span>e: R_AVR_13_PCREL	.text+<span class=hljs-number >0x18</span>
+</code></pre>
+<p>At first glance, it doesn&#39;t look too bad. We have a little bit more code and we see some <code>out</code> instructions, so are we good? Unfortunately, no. There is only a single <code>rjmp</code>, meaning our nice busy loops got eliminated. I also had to insert those <code>unsafe_load</code> to not get a segfault during compilation.. Further, the atomics seem to have ended up reading some pretty weird addresses - they appear to read/write <code>0x3f</code> &#40;or address <code>63</code>&#41; which is mapped to <code>SREG</code>, or the status register. Even weirder is what it&#39;s doing with the value it read:</p>
+<pre><code class="avrasm hljs"><span class=hljs-number >8</span>:	<span class=hljs-number >0</span>f b6       	<span class=hljs-keyword >in</span>	<span class=hljs-built_in >r0</span>, <span class=hljs-number >0x3f</span>	<span class=hljs-comment >; 63</span>
+<span class=hljs-symbol >a:</span>	f8 <span class=hljs-number >94</span>       	<span class=hljs-keyword >cli</span>
+...
+<span class=hljs-symbol >e:</span>	<span class=hljs-number >0</span>f be       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x3f</span>, <span class=hljs-built_in >r0</span>	<span class=hljs-comment >; 63</span></code></pre>
+<p>First, reading <code>SREG</code> into <code>r0</code>, then clearing the interrupt bit, then writing the value we saved back out. I don&#39;t know how it got to this code, but I do know that it&#39;s not what we want. So atomics are not the way to go.</p>
+<table class=fndef  id="fndef:volatileatomics">
+    <tr>
+        <td class=fndef-backref ><a href="#fnref:volatileatomics">[6]</a>
+        <td class=fndef-content ><blockquote>
+<p>&quot;Atomic and volatile in the IR are orthogonal; “volatile” is the C/C&#43;&#43; volatile, which ensures that every volatile load and store happens and is performed in the stated order. A couple examples: if a SequentiallyConsistent store is immediately followed by another SequentiallyConsistent store to the same address, the first store can be erased. This transformation is not allowed for a pair of volatile stores.&quot;, <a href="https://www.llvm.org/docs/Atomics.html#id4">LLVM Documentation - Atomics</a></p>
+</blockquote>
+
+    
+</table>
+
+<h3 id=inline_llvm-ir ><a href="#inline_llvm-ir" class=header-anchor >Inline LLVM-IR</a></h3>
+<p>The other option we still have at our disposal is writing inline LLVM-IR. Julia has great support for such constructs, so let&#39;s use them:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >const</span> DDRB  = <span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}(<span class=hljs-number >36</span>)
+<span class=hljs-keyword >const</span> PORTB = <span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}(<span class=hljs-number >37</span>)
+<span class=hljs-keyword >const</span> DDB1   = <span class=hljs-number >0b00000010</span>
+<span class=hljs-keyword >const</span> PORTB1 = <span class=hljs-number >0b00000010</span>
+<span class=hljs-keyword >const</span> PORTB_none = <span class=hljs-number >0b00000000</span> <span class=hljs-comment ># We don&#x27;t need any other pin - set everything low</span>
+
+<span class=hljs-keyword >function</span> volatile_store!(x::<span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}, v::<span class=hljs-built_in >UInt8</span>)
+    <span class=hljs-keyword >return</span> Base.llvmcall(
+        <span class=hljs-string >&quot;&quot;&quot;
+        %ptr = inttoptr i64 %0 to i8*
+        store volatile i8 %1, i8* %ptr, align 1
+        ret void
+        &quot;&quot;&quot;</span>,
+        <span class=hljs-built_in >Cvoid</span>,
+        <span class=hljs-built_in >Tuple</span>{<span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>},<span class=hljs-built_in >UInt8</span>},
+        x,
+        v
+    )
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >function</span> main_volatile()
+    volatile_store!(DDRB, DDB1)
+
+    <span class=hljs-keyword >while</span> <span class=hljs-literal >true</span>
+        volatile_store!(PORTB, PORTB1) <span class=hljs-comment ># enable LED</span>
+
+        <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >500000</span>
+            <span class=hljs-comment ># busy loop</span>
+        <span class=hljs-keyword >end</span>
+
+        volatile_store!(PORTB, PORTB_none) <span class=hljs-comment ># disable LED</span>
+
+        <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >500000</span>
+            <span class=hljs-comment ># busy loop</span>
+        <span class=hljs-keyword >end</span>
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span></code></pre>
+<p>with our disassembly looking like:</p>
+<pre><code class="avrasm hljs">
+/tmp/jl_3twwq9:     file format elf32-avr
+
+
+Disassembly of section .text:
+
+<span class=hljs-number >00000000</span> &lt;julia_main_volatile&gt;:
+   <span class=hljs-number >0</span>:	<span class=hljs-number >82</span> e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r24</span>, <span class=hljs-number >0x02</span>	<span class=hljs-comment >; 2</span>
+   <span class=hljs-number >2</span>:	<span class=hljs-number >84</span> b9       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x04</span>, <span class=hljs-built_in >r24</span>	<span class=hljs-comment >; 4</span>
+   <span class=hljs-number >4</span>:	<span class=hljs-number >90</span> e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r25</span>, <span class=hljs-number >0x00</span>	<span class=hljs-comment >; 0</span>
+   <span class=hljs-number >6</span>:	<span class=hljs-number >85</span> b9       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x05</span>, <span class=hljs-built_in >r24</span>	<span class=hljs-comment >; 5</span>
+   <span class=hljs-number >8</span>:	<span class=hljs-number >95</span> b9       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x05</span>, <span class=hljs-built_in >r25</span>	<span class=hljs-comment >; 5</span>
+   a:	<span class=hljs-number >00</span> c0       	<span class=hljs-keyword >rjmp</span>	.+<span class=hljs-number >0</span>      	<span class=hljs-comment >; 0xc &lt;julia_main_volatile+0xc&gt;</span>
+			a: R_AVR_13_PCREL	.text+<span class=hljs-number >0x6</span>
+</code></pre>
+<p>Much better&#33; Our <code>out</code> instructions save to the correct register. Unsurprisingly, all loops are still eliminated. We could force the variable from busy looping to exist by writing its value somewhere in SRAM, but that&#39;s a little wasteful. Instead, we can go one step deeper with our nesting and have inline AVR assembly in our inline LLVM-IR:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >const</span> DDRB  = <span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}(<span class=hljs-number >36</span>)
+<span class=hljs-keyword >const</span> PORTB = <span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}(<span class=hljs-number >37</span>)
+<span class=hljs-keyword >const</span> DDB1   = <span class=hljs-number >0b00000010</span>
+<span class=hljs-keyword >const</span> PORTB1 = <span class=hljs-number >0b00000010</span>
+<span class=hljs-keyword >const</span> PORTB_none = <span class=hljs-number >0b00000000</span> <span class=hljs-comment ># We don&#x27;t need any other pin - set everything low</span>
+
+<span class=hljs-keyword >function</span> volatile_store!(x::<span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}, v::<span class=hljs-built_in >UInt8</span>)
+    <span class=hljs-keyword >return</span> Base.llvmcall(
+        <span class=hljs-string >&quot;&quot;&quot;
+        %ptr = inttoptr i64 %0 to i8*
+        store volatile i8 %1, i8* %ptr, align 1
+        ret void
+        &quot;&quot;&quot;</span>,
+        <span class=hljs-built_in >Cvoid</span>,
+        <span class=hljs-built_in >Tuple</span>{<span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>},<span class=hljs-built_in >UInt8</span>},
+        x,
+        v
+    )
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >function</span> keep(x)
+    <span class=hljs-keyword >return</span> Base.llvmcall(
+        <span class=hljs-string >&quot;&quot;&quot;
+        call void asm sideeffect &quot;&quot;, &quot;X,~{memory}&quot;(i16 %0)
+        ret void
+        &quot;&quot;&quot;</span>,
+        <span class=hljs-built_in >Cvoid</span>,
+        <span class=hljs-built_in >Tuple</span>{<span class=hljs-built_in >Int16</span>},
+        x
+)
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >function</span> main_keep()
+    volatile_store!(DDRB, DDB1)
+
+    <span class=hljs-keyword >while</span> <span class=hljs-literal >true</span>
+        volatile_store!(PORTB, PORTB1) <span class=hljs-comment ># enable LED</span>
+
+        <span class=hljs-keyword >for</span> y <span class=hljs-keyword >in</span> <span class=hljs-built_in >Int16</span>(<span class=hljs-number >1</span>):<span class=hljs-built_in >Int16</span>(<span class=hljs-number >3000</span>)
+            keep(y)
+        <span class=hljs-keyword >end</span>
+
+        volatile_store!(PORTB, PORTB_none) <span class=hljs-comment ># disable LED</span>
+
+        <span class=hljs-keyword >for</span> y <span class=hljs-keyword >in</span> <span class=hljs-built_in >Int16</span>(<span class=hljs-number >1</span>):<span class=hljs-built_in >Int16</span>(<span class=hljs-number >3000</span>)
+            keep(y)
+        <span class=hljs-keyword >end</span>
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span></code></pre>
+<p>This slightly unorthodox <em>not even <code>nop</code></em> construct pretends to execute an instruction that has some sideeffect, using our input as an argument. I&#39;ve changed the loop to run for fewer iterations because it makes the assembly easier to read.</p>
+<p>Checking the disassembly we get...</p>
+<pre><code class="avrasm hljs">
+/tmp/jl_xOZ5hH:     file format elf32-avr
+
+
+Disassembly of section .text:
+
+<span class=hljs-number >00000000</span> &lt;julia_main_keep&gt;:
+   <span class=hljs-number >0</span>:	<span class=hljs-number >82</span> e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r24</span>, <span class=hljs-number >0x02</span>	<span class=hljs-comment >; 2</span>
+   <span class=hljs-number >2</span>:	<span class=hljs-number >84</span> b9       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x04</span>, <span class=hljs-built_in >r24</span>	<span class=hljs-comment >; 4</span>
+   <span class=hljs-number >4</span>:	<span class=hljs-number >21</span> e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r18</span>, <span class=hljs-number >0x01</span>	<span class=hljs-comment >; 1</span>
+   <span class=hljs-number >6</span>:	<span class=hljs-number >30</span> e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r19</span>, <span class=hljs-number >0x00</span>	<span class=hljs-comment >; 0</span>
+   <span class=hljs-number >8</span>:	<span class=hljs-number >9</span>b e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r25</span>, <span class=hljs-number >0x0B</span>	<span class=hljs-comment >; 11</span>
+   a:	<span class=hljs-number >40</span> e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r20</span>, <span class=hljs-number >0x00</span>	<span class=hljs-comment >; 0</span>
+   c:	<span class=hljs-number >85</span> b9       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x05</span>, <span class=hljs-built_in >r24</span>	<span class=hljs-comment >; 5</span>
+   e:	<span class=hljs-number >62</span> <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r22</span>, <span class=hljs-built_in >r18</span>
+  <span class=hljs-number >10</span>:	<span class=hljs-number >73</span> <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r23</span>, <span class=hljs-built_in >r19</span>
+  <span class=hljs-number >12</span>:	e6 <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r30</span>, <span class=hljs-built_in >r22</span>
+  <span class=hljs-number >14</span>:	f7 <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r31</span>, <span class=hljs-built_in >r23</span>
+  <span class=hljs-number >16</span>:	<span class=hljs-number >31</span> <span class=hljs-number >96</span>       	<span class=hljs-keyword >adiw</span>	<span class=hljs-built_in >r30</span>, <span class=hljs-number >0x01</span>	<span class=hljs-comment >; 1</span>
+  <span class=hljs-number >18</span>:	<span class=hljs-number >68</span> <span class=hljs-number >3</span>b       	<span class=hljs-keyword >cpi</span>	<span class=hljs-built_in >r22</span>, <span class=hljs-number >0xB8</span>	<span class=hljs-comment >; 184</span>
+  <span class=hljs-number >1</span>a:	<span class=hljs-number >79</span> <span class=hljs-number >07</span>       	<span class=hljs-keyword >cpc</span>	<span class=hljs-built_in >r23</span>, <span class=hljs-built_in >r25</span>
+  <span class=hljs-number >1</span>c:	<span class=hljs-number >6</span>e <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r22</span>, <span class=hljs-built_in >r30</span>
+  <span class=hljs-number >1</span>e:	<span class=hljs-number >7</span>f <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r23</span>, <span class=hljs-built_in >r31</span>
+  <span class=hljs-number >20</span>:	<span class=hljs-number >01</span> f4       	<span class=hljs-keyword >brne</span>	.+<span class=hljs-number >0</span>      	<span class=hljs-comment >; 0x22 &lt;julia_main_keep+0x22&gt;</span>
+			<span class=hljs-number >20</span>: R_AVR_7_PCREL	.text+<span class=hljs-number >0x16</span>
+  <span class=hljs-number >22</span>:	<span class=hljs-number >45</span> b9       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x05</span>, <span class=hljs-built_in >r20</span>	<span class=hljs-comment >; 5</span>
+  <span class=hljs-number >24</span>:	<span class=hljs-number >62</span> <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r22</span>, <span class=hljs-built_in >r18</span>
+  <span class=hljs-number >26</span>:	<span class=hljs-number >73</span> <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r23</span>, <span class=hljs-built_in >r19</span>
+  <span class=hljs-number >28</span>:	e6 <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r30</span>, <span class=hljs-built_in >r22</span>
+  <span class=hljs-number >2</span>a:	f7 <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r31</span>, <span class=hljs-built_in >r23</span>
+  <span class=hljs-number >2</span>c:	<span class=hljs-number >31</span> <span class=hljs-number >96</span>       	<span class=hljs-keyword >adiw</span>	<span class=hljs-built_in >r30</span>, <span class=hljs-number >0x01</span>	<span class=hljs-comment >; 1</span>
+  <span class=hljs-number >2</span>e:	<span class=hljs-number >68</span> <span class=hljs-number >3</span>b       	<span class=hljs-keyword >cpi</span>	<span class=hljs-built_in >r22</span>, <span class=hljs-number >0xB8</span>	<span class=hljs-comment >; 184</span>
+  <span class=hljs-number >30</span>:	<span class=hljs-number >79</span> <span class=hljs-number >07</span>       	<span class=hljs-keyword >cpc</span>	<span class=hljs-built_in >r23</span>, <span class=hljs-built_in >r25</span>
+  <span class=hljs-number >32</span>:	<span class=hljs-number >6</span>e <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r22</span>, <span class=hljs-built_in >r30</span>
+  <span class=hljs-number >34</span>:	<span class=hljs-number >7</span>f <span class=hljs-number >2</span>f       	<span class=hljs-keyword >mov</span>	<span class=hljs-built_in >r23</span>, <span class=hljs-built_in >r31</span>
+  <span class=hljs-number >36</span>:	<span class=hljs-number >01</span> f4       	<span class=hljs-keyword >brne</span>	.+<span class=hljs-number >0</span>      	<span class=hljs-comment >; 0x38 &lt;julia_main_keep+0x38&gt;</span>
+			<span class=hljs-number >36</span>: R_AVR_7_PCREL	.text+<span class=hljs-number >0x2c</span>
+  <span class=hljs-number >38</span>:	<span class=hljs-number >00</span> c0       	<span class=hljs-keyword >rjmp</span>	.+<span class=hljs-number >0</span>      	<span class=hljs-comment >; 0x3a &lt;julia_main_keep+0x3a&gt;</span>
+			<span class=hljs-number >38</span>: R_AVR_13_PCREL	.text+<span class=hljs-number >0xc</span>
+</code></pre>
+<p>Huzzah&#33; Pretty much everything we&#39;d expect to see is here:</p>
+<ul>
+<li><p>We write to <code>0x05</code> with <code>out</code></p>
+
+<li><p>We have some <code>brne</code> to busy loop with</p>
+
+<li><p>We add something to some register for our looping</p>
+
+</ul>
+<p>Granted, the binary is not as small as the one we compiled with <code>-Os</code> from C, but it should work&#33; The only remaining step is to get rid of all those <code>.&#43;0</code> jump labels, which would prevent us from actually looping. I&#39;ve also enabled dumping of relocation labels &#40;that&#39;s the <code>R_AVR_7_PCREL</code> stuff&#41; - these are inserted by the compiler make the code relocatable in an ELF file and used by the linker during final linking of the assembly. Now that we&#39;re probably ready to flash, we can link our code into a binary &#40;thereby resolving those relocation labels&#41; and flash it onto our arduino:</p>
+<pre><code class="text hljs">$ avr-ld -o jl_blink.elf jl_blink.o
+
+$ avr-objcopy -O ihex jl_blink.elf jl_blink.hex
+
+$ avrdude -V -c arduino -p ATMEGA328P -P /dev/ttyACM0 -U flash:w:jl_blink.hex
+avrdude: AVR device initialized and ready to accept instructions
+
+Reading | ################################################## | 100% 0.00s
+
+avrdude: Device signature = 0x1e950f (probably m328p)
+avrdude: NOTE: &quot;flash&quot; memory has been specified, an erase cycle will be performed
+         To disable this feature, specify the -D option.
+avrdude: erasing chip
+avrdude: reading input file &quot;jl_blink.hex&quot;
+avrdude: input file jl_blink.hex auto detected as Intel Hex
+avrdude: writing flash (168 bytes):
+
+Writing | ################################################## | 100% 0.04s
+
+avrdude: 168 bytes of flash written
+
+avrdude done.  Thank you.</code></pre>
+<p>and after flashing we get...</p>
+<h2 id=an_led_in_julia ><a href="#an_led_in_julia" class=header-anchor >&lt;blink&gt; an LED in Julia</a></h2>
+<p style="display: flex; justify-content: center;">
+    <video style="max-width: 80%; width: auto; height: auto" controls preload=metadata >
+        <source src='./blinking_led.webm' type="video/webm"/>
+        Your browser does not support the video tag.
+    </video>
+</p>
+
+<p>Now <em>THAT</em> is what I call two days well spent&#33; The arduino is powered through the serial connector I use to flash programs on the right.</p>
+<p>I want to thank everyone in the Julialang Slack channel <code>#static-compilation</code> for their help during this&#33; Without them, I wouldn&#39;t have thought of the relocation labels in linking and their help was invaluable when figuring out what does and does not work when compiling julia to a, for this language, exotic architecture.</p>
+<h2 id=limitations ><a href="#limitations" class=header-anchor >Limitations</a></h2>
+<p>Would I use this in production? Unlikely, but possibly in the future. It was finicky to get going and random segmentation faults during the compilation process itself are bothersome. But then again - nothing of this was part of a supported workflow, so I guess I&#39;m happy that it has worked as well as it has&#33; I do believe that this area will steadily improve - after all, it&#39;s already working well on GPUs and FPGAs &#40;or so I&#39;m told - Julia on an FPGA is apparently some commercial offering from a company&#41;. From what I know, this is the first julia code to run native &amp; baremetal on any Arduino/ATmega based chip, which in and of itself is already exciting. Still, the fact that there is no such thing as a runtime for this &#40;julia uses libuv for tasks - getting that on an arduino seems challenging&#41; means you&#39;re mostly going to be limited to self-written or vetted code that doesn&#39;t rely on too advanced features, like a GC.</p>
+<p>Some niceties I&#39;d like to have are better custom-allocator support, to allow actual proper &quot;heap&quot; allocation. I haven&#39;t tried yet, but I think immutable structs &#40;which are often placed on the stack already, which the ATmega328p does have&#33;&#41; should work out of the box.</p>
+<p>I&#39;m looking forward to trying out some i²c and SPI communication, but my gut tells me it won&#39;t be much different from writing this in C &#40;unless we get custom allocator support or I use one of the <code>malloc</code> based arrays from <a href="https://github.com/brenhinkeller/StaticTools.jl">StaticTools.jl</a>, that is&#41;.</p>
+<h2 id=links_references ><a href="#links_references" class=header-anchor >Links &amp; references</a></h2>
+<ul>
+<li><p><a href="https://docs.arduino.cc/retired/boards/arduino-ethernet-rev3-without-poe">Arduino Ethernet R3 Documentation</a></p>
+
+<li><p><a href="https://www.arduino.cc/en/uploads/Main/arduino-ethernet-R3-schematic.pdf">Arduino Ethernet R3 Schematic</a></p>
+
+<li><p><a href="https://ww1.microchip.com/downloads/en/DeviceDoc/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061B.pdf">ATmega328p Datasheet</a></p>
+
+<li><p><a href="https://github.com/JuliaGPU/GPUCompiler.jl">GPUCompiler</a></p>
+
+<li><p><a href="https://www.llvm.org/docs/Atomics.html#id4">LLVM Documentation - Atomics</a></p>
+
+</ul>
+<p></p>
+<footer>
+    <a href="http://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> Sukera. Last modified: May 23, 2022.
+    Website built with <a href="https://github.com/tlienart/Franklin.jl">Franklin.jl</a>, the <a href="https://julialang.org">Julia programming language</a> and <span class=heart >♥</span>!
+</footer>
+</div>
+    
+    
+        
+<script>hljs.highlightAll();hljs.configure({tabReplace: '    '});</script>

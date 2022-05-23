@@ -1,0 +1,32 @@
+
+/tmp/jl_UfT1Rf:     file format elf32-avr
+
+
+Disassembly of section .text:
+
+00000000 <julia_main_atomic>:
+   0:	85 b1       	in	r24, 0x05	; 5
+   2:	82 60       	ori	r24, 0x02	; 2
+   4:	a4 e2       	ldi	r26, 0x24	; 36
+   6:	b0 e0       	ldi	r27, 0x00	; 0
+   8:	0f b6       	in	r0, 0x3f	; 63
+   a:	f8 94       	cli
+   c:	8c 93       	st	X, r24
+   e:	0f be       	out	0x3f, r0	; 63
+  10:	85 b1       	in	r24, 0x05	; 5
+  12:	a5 e2       	ldi	r26, 0x25	; 37
+  14:	b0 e0       	ldi	r27, 0x00	; 0
+  16:	98 2f       	mov	r25, r24
+  18:	92 60       	ori	r25, 0x02	; 2
+  1a:	0f b6       	in	r0, 0x3f	; 63
+  1c:	f8 94       	cli
+  1e:	9c 93       	st	X, r25
+  20:	0f be       	out	0x3f, r0	; 63
+  22:	98 2f       	mov	r25, r24
+  24:	9d 7f       	andi	r25, 0xFD	; 253
+  26:	0f b6       	in	r0, 0x3f	; 63
+  28:	f8 94       	cli
+  2a:	9c 93       	st	X, r25
+  2c:	0f be       	out	0x3f, r0	; 63
+  2e:	00 c0       	rjmp	.+0      	; 0x30 <julia_main_atomic+0x30>
+			2e: R_AVR_13_PCREL	.text+0x18

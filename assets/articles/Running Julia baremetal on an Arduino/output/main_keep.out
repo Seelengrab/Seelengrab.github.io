@@ -1,0 +1,39 @@
+
+/tmp/jl_xOZ5hH:     file format elf32-avr
+
+
+Disassembly of section .text:
+
+00000000 <julia_main_keep>:
+   0:	82 e0       	ldi	r24, 0x02	; 2
+   2:	84 b9       	out	0x04, r24	; 4
+   4:	21 e0       	ldi	r18, 0x01	; 1
+   6:	30 e0       	ldi	r19, 0x00	; 0
+   8:	9b e0       	ldi	r25, 0x0B	; 11
+   a:	40 e0       	ldi	r20, 0x00	; 0
+   c:	85 b9       	out	0x05, r24	; 5
+   e:	62 2f       	mov	r22, r18
+  10:	73 2f       	mov	r23, r19
+  12:	e6 2f       	mov	r30, r22
+  14:	f7 2f       	mov	r31, r23
+  16:	31 96       	adiw	r30, 0x01	; 1
+  18:	68 3b       	cpi	r22, 0xB8	; 184
+  1a:	79 07       	cpc	r23, r25
+  1c:	6e 2f       	mov	r22, r30
+  1e:	7f 2f       	mov	r23, r31
+  20:	01 f4       	brne	.+0      	; 0x22 <julia_main_keep+0x22>
+			20: R_AVR_7_PCREL	.text+0x16
+  22:	45 b9       	out	0x05, r20	; 5
+  24:	62 2f       	mov	r22, r18
+  26:	73 2f       	mov	r23, r19
+  28:	e6 2f       	mov	r30, r22
+  2a:	f7 2f       	mov	r31, r23
+  2c:	31 96       	adiw	r30, 0x01	; 1
+  2e:	68 3b       	cpi	r22, 0xB8	; 184
+  30:	79 07       	cpc	r23, r25
+  32:	6e 2f       	mov	r22, r30
+  34:	7f 2f       	mov	r23, r31
+  36:	01 f4       	brne	.+0      	; 0x38 <julia_main_keep+0x38>
+			36: R_AVR_7_PCREL	.text+0x2c
+  38:	00 c0       	rjmp	.+0      	; 0x3a <julia_main_keep+0x3a>
+			38: R_AVR_13_PCREL	.text+0xc
