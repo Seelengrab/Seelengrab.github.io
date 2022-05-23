@@ -1,0 +1,11 @@
+
+/tmp/jl_uOAUKI:     file format elf32-avr
+
+
+Disassembly of section .text:
+
+00000000 <julia_main_pointers>:
+   0:	82 e0       	ldi	r24, 0x02	; 2
+   2:	84 b9       	out	0x04, r24	; 4
+   4:	00 c0       	rjmp	.+0      	; 0x6 <julia_main_pointers+0x6>
+			4: R_AVR_13_PCREL	.text+0x4
