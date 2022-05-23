@@ -46,8 +46,8 @@ So, what are we dealing with? Well, even arduino don't sell these anymore:
 @@left ![](./arduino.jpg)@@
 
 This is an [Arduino Ethernet R3][arduinodoc], a variation on the common Arduino UNO. It's the third revision, boasting an ATmega328p,
-an ethernet port, a slot for an SD card as well as 14 I/O pins, most of which are reserved. It has 32KB of flash memory, 2KB SRAM and 1KB EEPROM.
-Its clock runs at measly 16 MHz, there's a serial interface for an external programmer and it weighs 28g.
+an ethernet port, a slot for an SD card as well as 14 I/O pins, most of which are reserved. It has 32KiB of flash memory, 2KiB SRAM and 1KiB
+EEPROM. Its clock runs at measly 16 MHz, there's a serial interface for an external programmer and it weighs 28g.
 
 With this documentation, the [schematic][arduinoschema] for the board, the [datasheet][atmegadatasheet] for the microcontroller
 and a good amount of "you've done harder things before" I set out to achieve the simplest goal imaginable: Let the LED labeled `L9`
@@ -93,9 +93,8 @@ avrdude -V -c arduino -p ATMEGA328P -P /dev/ttyACM0 -U flash:w:blink_led.hex
 results in a nice, blinking LED.
 
 These few shell commands compile our `.c` soure code to an `.o` object file targeting our microcontroller, link it into an
-`.elf`, translate that to the Intel `.hex` format the controller expects and finally flash it
-to the controller with the appropriate settings for `avrdude`. Pretty basic stuff. It shouldn't be hard to translate this,
-so where's the catch?
+`.elf`, translate that to the Intel `.hex` format the controller expects and finally flash it to the controller with the appropriate
+settings for `avrdude`. Pretty basic stuff. It shouldn't be hard to translate this, so where's the catch?
 
 Well, most of the code above is not even C, but C preprocessor directives tailored to do exactly what we mean to do. We can't
 make use of them in julia and we can't import those `.h` files, so we'll have to figure out what they mean. I haven't checked,
@@ -111,7 +110,7 @@ difference between a julia-created `.o` and a `avr-gcc` created `.o`.
 
 ## A first piece of julia pseudocode
 
-So with all that in mind, let's sketch what we think our code should look like:
+So with all that in mind, let's sketch out what we think our code should look like:
 
 ```julia
 const DDRB = ??
@@ -146,11 +145,12 @@ To answer this we first have to take a step back, forget that these are defined 
 these represent. Both `DDRB` and `PORTB` reference specific I/O registers in our microcontroller. `DDB1` and `PORTB1`
 refer to the (zero-based) 1st bit of the respective register. In theory, we only have to set these bits in the registers
 above to make the controller blink our little LED. How do you set a bit in a specific register though? This has to be exposed
-to a programmer somehow (in assembly code we'd just access the register natively, after all).
+to a high level language like C somehow. In assembly code we'd just access the register natively, but save for inline assembly, we can't
+do that in either C or julia.
 
 When we take a look in our microcontroller datasheet, we can notice that there's a chapter `36. Register Summary` from page 621
 onwards. This section is a register reference table. It has an entry for each register, specifying an address, a name, the name
-of each bit as well as the page in the datasheet where further documentation, such as initial values, can be found. Scrolling to
+of each bit, as well as the page in the datasheet where further documentation, such as initial values, can be found. Scrolling to
 the end, we find what we've been looking for:
 
 @@table
@@ -160,7 +160,7 @@ the end, we find what we've been looking for:
 | 0x04 (0x24) | DDRB  | DDR7   | DDR6   | DDR5   | DDR4   | DDR3   | DDR2   | DDR1   | DDR0   | 100  |
 @@
 
-So `PORTB` is mapped to address `0x05` and `0x25`, while `DDRB` is mapped to address `0x04` and `0x24`. Which memory are those
+So `PORTB` is mapped to addresses `0x05` and `0x25`, while `DDRB` is mapped to addresses `0x04` and `0x24`. Which memory are those
 addresses referring to? We have EEPROM, flash memory as well as SRAM after all. Once again, the datasheet comes to our help:
 Chapter `8 AVR Memories` has a short section on our SRAM memory, with a very interesting figure:
 
@@ -253,7 +253,7 @@ USE_BINARYBUILDER_LLVM=0
 ```
 
 Now, after running `make` to start the build process, LLVM is downloaded, patched & built from source and made available to our julia code.
-The whole LLVM compilation took about 40 minutes on my laptop.
+The whole LLVM compilation took about 40 minutes on my laptop. I honestly expected worse!
 
 ### Defining an architecture
 
@@ -343,7 +343,9 @@ end
 
 We first get a method instance from the julia runtime and ask CPUCompiler to give us the corresponding LLVM IR
 for our given job, i.e. for our target architecture. We don't use any libraries and we can't run codegen, but julia specific
-optimizations sure would be nice.
+optimizations sure would be nice. They're also required for us, since they remove obviously dead code regarding the julia runtime,
+which we neither want nor can call into. If it would remain in the IR, we'd error out when trying to build our ASM, due to the missing
+symbols.
 
 After this, it's just emitting of AVR ASM:
 
@@ -361,6 +363,9 @@ function build_obj(@nospecialize(func), @nospecialize(types); kwargs...)
     return obj
 end
 ```
+
+We're also going to strip out debug info since we can't debug anyway and we're additionally asking LLVM to validate our IR - a very useful
+feature!
 
 [^remarkruntime]: The eagle eyed may notice that this is suspiciously similar to what one needs for Rust - something to allocate and something to report errors. This is no coincidence - it's the minimum required for a language that usually has a runtime that handles things like signals and allocation of memory for you. Spinning this further could lead one to think that Rust too is garbage collected, since you never have to call `malloc` and `free` yourself - it's all handled by the runtime & compiler, which inserts calls to these (or another allocator) in the appropriate places.
 
@@ -427,21 +432,21 @@ $ avr-objdump -d blink_led.elf
 [...]
 ```
 
-This sets the same bit on `0x04` (remember, this was `DDRB`), initializes a loop variable over three words, branches, jumps, sets and clears bits.. Basically everything we'd expect our code to do as well, so what gives?
+This sets the same bit as our code on `0x04` (remember, this was `DDRB`), initializes a loop variable over three words, branches, jumps, sets and clears bits.. Basically everything we'd expect our code to do as well, so what gives?
 
 In order to figure out what's going on, we have to remember that julia, LLVM and gcc are optimizing compilers. If they can deduce that
-some piece of code has no visible effect, for example because you're always overwriting previous loop iterations, the compiler is usually
-free to just delete the superfluous writes because you can't observe the difference anyway.
+some piece of code has no visible effect, for example because you're always overwriting previous loop iterations with known constants,
+the compiler is usually free to just delete the superfluous writes because you can't observe the difference anyway.
 
-Here, two things happened:
+Here, I believe two things happened:
 
  1) The initial `unsafe_load` from our pointer triggered undefined behavior, since the initial value of a given pointer is not defined. LLVM saw that, saw that we actually used the read value and eliminated both read & store due to it being undefined behavior and it being free to pick the value it "read" to be the one we wrote, making the load/store pair superfluous.
  2) The now empty loops serve no purpose, so they got removed as well.
 
 In C, you can solve this problem by using `volatile`. That keyword is a very strict way of telling the compiler "Look, I want every single
-read & write from and to this variable to happen. Don't eliminate any and don't shuffle them around". In contrast, julia doesn't have this
-concept at all - but we do have atomics. So let's use them to see if they're enough, even though semantically they're a tiny bit
-different[^volatileatomics].
+read & write from and to this variable to happen. Don't eliminate any and don't shuffle them around (except for non-volatile, you're free to
+shuffle those around)". In contrast, julia doesn't have this concept at all - but we do have atomics. So let's use them to see if they're
+enough, even though semantically they're a tiny bit different[^volatileatomics].
 
 ### Atomicity
 
@@ -604,7 +609,7 @@ Huzzah! Pretty much everything we'd expect to see is here:
  * We add something to some register for our looping
 
 Granted, the binary is not as small as the one we compiled with `-Os` from C, but it should work! The only remaining step is to get rid of all
-those `.+0` jump labels, which would prevent us from actually looping. I've also dumping enabled relocation labels
+those `.+0` jump labels, which would prevent us from actually looping. I've also enabled dumping of relocation labels
 (that's the `R_AVR_7_PCREL` stuff) - these are inserted by the compiler make the code relocatable in an ELF file and used by the linker
 during final linking of the assembly. Now that we're probably ready to flash, we can link our code into a binary (thereby resolving those relocation labels) and flash it onto our arduino:
 
@@ -633,20 +638,13 @@ avrdude: 168 bytes of flash written
 avrdude done.  Thank you.
 ```
 
-and after flashing it to the arduino we get...
+and after flashing we get...
 
 ## <blink> an LED in Julia
 
-~~~
-<p style="display: flex; justify-content: center;">
-<video style="max-width: 80%; width: auto; height: auto" controls>
-<source src="./blinking_led.webm" type="video/webm"/>
-Your browser does not support the video tag.
-</video>
-</p>
-~~~
+{{video ./blinking_led.webm}}
 
-Now *THAT* is what I call two days well spent! The arduino is powered through the serial connector on the right.
+Now *THAT* is what I call two days well spent! The arduino is powered through the serial connector I use to flash programs on the right.
 
 I want to thank everyone in the Julialang Slack channel `#static-compilation` for their help during this! Without them, I wouldn't have
 thought of the relocation labels in linking and their help was invaluable when figuring out what does and does not work when compiling
