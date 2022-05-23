@@ -304,6 +304,10 @@ table:not(.fndef) tr:first-of-type {
 	border: none;
 }
 
+.franklin-content .fndef td.fndef-backref {
+	display: flex;
+}
+
 tr:first-of-type {
 	background: white;
 }
