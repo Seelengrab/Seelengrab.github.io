@@ -189,7 +189,8 @@ end
 
 I spent a full day on these constants, writing them out by hand. I only learnt afterwards that I could have generated these from some
 XML file :') I'm telling myself that I didn't know the exact interface I wanted to use yet (which was true, the interface evolved
-while writing out pins & bits one by one), but I'll definitely do that for the next chip.
+while writing out pins & bits one by one), but I'll definitely do that for the next chip. Regardless, now all of the registers and their
+individual pins should be defined as constants under the `AVRDevies.ATmega328p` submodule.
 
 The definitions themselves for this chip finally ended up in the `ATmega328p` submodule of `AVRDevices`, since those pins and registers
 are for that chip. Full disclosure though, I do not own other chips that I could target with this, so unless someone else wants to
