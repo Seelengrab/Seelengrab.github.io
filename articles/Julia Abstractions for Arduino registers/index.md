@@ -82,20 +82,21 @@ final assembly and doesn't get eliminated, and finally the actual code showcasin
 for a meager result.
 
 In the first step to improve this and to make writing new projects using those same building blocks easier,
-I ended up writing a new julia package handling all this, while providing the utilities required - [`AVRDevices.jl`][avrdevices].
-It's heavily inspired by the awesome [avr-rust project][avr-rust] and was very helpful in figuring out what kinds of features
+I ended up writing a new julia package handling all of this, while providing the utilities required - [`AVRDevices.jl`][avrdevices].
+It's heavily inspired by the awesome [avr-rust project][avr-rust], which was very helpful in figuring out what kinds of features
 would be nice to have in a library like this.
 
 The second step was wrapping the compiler functions up into its own package as well, [`AVRCompiler.jl`][avrcompiler]. There's a bunch of stuff that
-could be done there, like having `JLL`s from [BinaryBuilder][binarybuilder] for linking and flashing onto a connected device, but I
-haven't gotten to that yet and so it's just the existing functions wrapped up into a package for now.
+could be done there, like having `JLL`s from [BinaryBuilder][binarybuilder] for linking and flashing onto a connected device, or maybe just
+relying on the already-required AVR compatible LLVM. I haven't gotten to that yet though and so it's just the existing functions, wrapped
+up into a package for now.
 
 ## Dev-UX! A kingdom for nice Dev-UX!
 
-So, what *is* actually a nice kind of feature here? Some form of static checking would be nice, to be sure that I can't construct an
-invalid configuration/register state from unrelated constants. Also, building the desired state up step-by-step and only write it out
-once - writing takes time, and if we're hardcoding a static configuration it's also much nicer to have it all constant fold away into
-a single write to a register. 
+So, what *are* actually a nice set of features here? Some form of static checking would be nice, to be sure that I can't construct an
+invalid configuration/register state from unrelated constants on accident. Also, building the desired state up step-by-step and only
+writing it out once - writing to a register takes much more time if done on a per-bit basis, and if we're hardcoding a static
+configuration it's also much nicer to have it all constant fold away into a single write to a register. 
 
 With this wishlist in mind, here's what I've come up with:
 
@@ -120,8 +121,8 @@ end
 ```
 
 The first type is just a wrapper around a raw pointer - it will be the equivalent of what `const DDRB  = Ptr{UInt8}(36)` was in the
-ad-hoc implementation. The second type represents a single bit of a register. It will be used for reading & writing just that bit,
-as well as for building objects of the third type, which represents the bitmasks we use when building a successive value.
+ad-hoc implementation, representing a register. The second type is a single bit of one of those registers. It will be used for reading
+& writing just that bit, as well as for building objects of the third type, which represents the bitmasks we use when building a successive value.
 
 For reading registers/pins, I've implemented `getindex(::T)`, which is just a forward to the `volatile_load` of the correct pointer size:
 
@@ -129,8 +130,11 @@ For reading registers/pins, I've implemented `getindex(::T)`, which is just a fo
 Base.getindex(r::Register) = volatile_load(r)
 ```
 
+This does hook into the same exact machinery that regular `Array`s in julia use - so in a sense, `Register` and `Pin` are a kind of array!
+
 For `Pin`s, at the moment this has a `volatile_load` of the register and masks the bit out, though I may change that later to a simple
-bit load (`BLD`) instruction, so that a load requires fewer cycles.
+bit load (`BLD`) instruction, so that a load requires fewer cycles. I haven't actually clocked/checked whether this is worth it though, since
+using that instruction means I have to get the value out of a special bit of the `SREG` register (which could be as expensive as just loading directly).
 
 Similarly, I've defined `setindex` to allow setting a whole value or just a single bit:
 
@@ -140,13 +144,16 @@ Base.setindex!(r::Register{Reg, T}, rb::RegisterBits{Reg, T}) where {Reg, T} = v
 Base.setindex!(r::RT, _::Pin{RT, Reg, b, m}) where {RT, Reg, b, m} = volatile_store!(r, m)
 ```
 
-These definitions allow these syntax to work:
+These definitions allow this syntax to work[^cmacro] :
 
 ```julia
 val = Register[] # load the current value of the register
+val = Pin1[] # load a Boolean value depending on whether or not `Pin1` is set
 Register[] = val # write a value to the register
-Register[] = Pin1 # set `Pin1` of `Register`
-Register[] = Pin1 | Pin2 # set `Pin1` and `Pin2` of `Register` with a single write
+Pin1[] = true # set the bit named `Pin1` - errors if the RHS is not a boolean
+Register[] = Pin1 # set only `Pin1` of `Register` to 1 and the rest to 0
+Register[] = Pin1 | Pin2 # set `Pin1` and `Pin2` of `Register` with a single write, the rest to 0
+Register[] |= Pin1 # set `Pin1` but leave the others alone
 ```
 
 `Pin1 | Pin2` is also implemented, which returns a `RegisterBits` value holding the bitwise-ORed masks of each pin.
@@ -168,6 +175,7 @@ Defining registers and their pins now is as simple as having a microcontroller s
 # a shorthand - `R` just makes the register name available for dispatch, to get the type safety we wanted
 # `UInt8` is just the native size of the register
 const Ru8{R} = Register{R, UInt8}
+
 const PINB   = Ru8{:PINB}(0x23)
 const DDRB   = Ru8{:DDRB}(0x24)
 const PORTB  = Ru8{:PORTB}(0x25)
@@ -185,16 +193,19 @@ for p in 0:7
        export $pinb, $ddrb, $portb
     end
 end
+
+# ...
+# and so on for ~600 LOC :')
 ```
 
 I spent a full day on these constants, writing them out by hand. I only learnt afterwards that I could have generated these from some
 XML file :') I'm telling myself that I didn't know the exact interface I wanted to use yet (which was true, the interface evolved
 while writing out pins & bits one by one), but I'll definitely do that for the next chip. Regardless, now all of the registers and their
-individual pins should be defined as constants under the `AVRDevies.ATmega328p` submodule.
-
-The definitions themselves for this chip finally ended up in the `ATmega328p` submodule of `AVRDevices`, since those pins and registers
+individual pins should be defined as constants under the `AVRDevies.ATmega328p` submodule, since those pins and registers
 are for that chip. Full disclosure though, I do not own other chips that I could target with this, so unless someone else wants to
 contribute, it'll probably stay like this for now.
+
+[^cmacro]: To be clear here - this allows me to use the exact same syntax for reading & writing a single bit of a register while also using that same syntax in `if` branches. Working on this syntax also lead to challenging some friends of mine to express the exact same convenience in C, which nerdsniped them for about an hour.. :) Can you figure out the trick? The rules were the following: 1) `val = FOOBAR` reads the bit `FOOBAR` of a register as a boolean value (no truthiness); 2) `FOOBAR = true` must write only that bit; 3) `if FOOBAR` must also be possible for branching. You are free to replace `FOOBAR` with whatever you want, as long as it's the exact same in all three places.
 
 ## A new blinking Hope
 
@@ -390,7 +401,11 @@ end
 USART0(;kwargs...) = USART0{0x8}(;kwargs...)
 ```
 
-and together with some functions for actually writing data to this thing we can compile this example code:
+Not all modes supported by the hardware are also already supported by my software - 9-bit frame length in particular is a bit tricky
+when writing data, as there's a lot of shifting to do..
+
+Regardless, the default of 9600 baud, a framewidth of 8 bits and some stop bits, together with some functions for actually writing data
+to this thing can be used to compile this example code:
 
 ```julia
 module uart_example
@@ -446,7 +461,7 @@ Disassembly of section .text:
 ```
 
 which _again_ compiles all that "dynamic" function work completely away into just those 4 stores to `UCSR0B`, `UCSR0C`, `UBBRH` and `UBBRL`,
-otherwise known as the control registers for `USART0`. Flashing in the usual fashion, as well as connecting a cheap knock-off serial analyzer I recently
+otherwise known as the control registers for `USART0`. Flashing in the usual fashion, as well as connecting a cheap knock-off logic analyzer I recently
 bought (this is not a Saleae - I cannot afford those!) to the output pins gives us...
 
 {{video ./uart_example.webm}}
