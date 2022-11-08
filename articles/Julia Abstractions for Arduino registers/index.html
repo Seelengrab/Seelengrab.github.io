@@ -1,0 +1,389 @@
+<!doctype html> <html lang=en > <meta charset=UTF-8 > <meta name=viewport  content="width=device-width, initial-scale=1"> <link rel=stylesheet  href="/libs/highlight/github.min.css"> <link rel=stylesheet  href="/css/franklin.css"> <link rel=stylesheet  href="/css/basic.css"> <link rel=stylesheet  href="/css/style.css"> <link rel=icon  href="/assets/favicon.png"> <title>Julia Abstractions for Arduino registers</title> <header> <a href="/" class=blog-name ><span>Voyage:</span><span id=title >Julia Abstractions for Arduino registers</span></a> <nav> <ul> <li><a href="/articles/">Articles</a> <!--<li><a href="/tag/">Tags</a>--> <li><a href="/about/">About</a> </ul> <img src="/assets/hamburger.svg" id=menu-icon > </nav> </header> <ul class=franklin-content  id=tags > <li><a href='/tag/julia/'>julia</a><li><a href='/tag/c/'>c</a><li><a href='/tag/arduino/'>arduino</a><li><a href='/tag/abstraction/'>abstraction</a><li><a href='/tag/µC/'>µC</a></ul> <div class=franklin-content ><h1 id=julia_abstractions_for_arduino_registers ><a href="#julia_abstractions_for_arduino_registers" class=header-anchor >Julia Abstractions for Arduino registers</a></h1> <div class=franklin-toc ><ol><li><a href="#preamble">Preamble</a><li><a href="#a_small_recap">A small recap</a><li><a href="#dev-ux_a_kingdom_for_nice_dev-ux">Dev-UX&#33; A kingdom for nice Dev-UX&#33;</a><li><a href="#a_new_blinking_hope">A new blinking Hope</a><li><a href="#serial_experiments_julia">Serial Experiments Julia </a><li><a href="#limitations_ux_in_development">Limitations &amp; UX in development</a><li><a href="#links_references">Links &amp; References</a></ol></div> <h2 id=preamble ><a href="#preamble" class=header-anchor >Preamble</a></h2> <p>It&#39;s been a while since I&#39;ve messed around with julia on an arduino - I honestly did not expect people to be interested in this as much as they have been&#33; Since there has been lots of progress on my bachelors&#39; thesis, I thought it would be ok to procrastinate a little bit again and clean up the &quot;just get it to work&quot; version of the blinking LED project.</p> <p>So in this installment of &quot;things I do when I forcefully make some time&quot;, we&#39;ll be looking at some ways we can abstract the messiness of the hardware underneath the code away, making it easier to write new code interacting with the hardware and generalizing the ad-hoc implementation from the previous article for more than just one specific use case. All the while not losing any of the guarantees about volatility we learned to communicate last time.</p> <p>This post will dive more into how the abstraction I chose ended up looking and how to use them, than what the hardware underneath does. That said, I will take a small look into how zero-cost these abstractions are - exciting stuff&#33;</p> <h2 id=a_small_recap ><a href="#a_small_recap" class=header-anchor >A small recap</a></h2> <p>In case you, dear reader, are not up to date with the current state of blinking an LED in julia, here&#39;s a small reminder about what <a href="../Running Julia baremetal on an Arduino/">I ended up with last time</a>:</p> <pre><code class="julia hljs"><span class=hljs-keyword >const</span> DDRB  = <span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}(<span class=hljs-number >36</span>)
+<span class=hljs-keyword >const</span> PORTB = <span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}(<span class=hljs-number >37</span>)
+<span class=hljs-keyword >const</span> DDB1   = <span class=hljs-number >0b00000010</span>
+<span class=hljs-keyword >const</span> PORTB1 = <span class=hljs-number >0b00000010</span>
+<span class=hljs-keyword >const</span> PORTB_none = <span class=hljs-number >0b00000000</span> <span class=hljs-comment ># We don&#x27;t need any other pin - set everything low</span>
+
+<span class=hljs-keyword >function</span> volatile_store!(x::<span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>}, v::<span class=hljs-built_in >UInt8</span>)
+    <span class=hljs-keyword >return</span> Base.llvmcall(
+        <span class=hljs-string >&quot;&quot;&quot;
+        %ptr = inttoptr i64 %0 to i8*
+        store volatile i8 %1, i8* %ptr, align 1
+        ret void
+        &quot;&quot;&quot;</span>,
+        <span class=hljs-built_in >Cvoid</span>,
+        <span class=hljs-built_in >Tuple</span>{<span class=hljs-built_in >Ptr</span>{<span class=hljs-built_in >UInt8</span>},<span class=hljs-built_in >UInt8</span>},
+        x,
+        v
+    )
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >function</span> keep(x)
+    <span class=hljs-keyword >return</span> Base.llvmcall(
+        <span class=hljs-string >&quot;&quot;&quot;
+        call void asm sideeffect &quot;&quot;, &quot;X,~{memory}&quot;(i16 %0)
+        ret void
+        &quot;&quot;&quot;</span>,
+        <span class=hljs-built_in >Cvoid</span>,
+        <span class=hljs-built_in >Tuple</span>{<span class=hljs-built_in >Int16</span>},
+        x
+)
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >function</span> main_keep()
+    volatile_store!(DDRB, DDB1)
+
+    <span class=hljs-keyword >while</span> <span class=hljs-literal >true</span>
+        volatile_store!(PORTB, PORTB1) <span class=hljs-comment ># enable LED</span>
+
+        <span class=hljs-keyword >for</span> y <span class=hljs-keyword >in</span> <span class=hljs-built_in >Int16</span>(<span class=hljs-number >1</span>):<span class=hljs-built_in >Int16</span>(<span class=hljs-number >3000</span>)
+            keep(y)
+        <span class=hljs-keyword >end</span>
+
+        volatile_store!(PORTB, PORTB_none) <span class=hljs-comment ># disable LED</span>
+
+        <span class=hljs-keyword >for</span> y <span class=hljs-keyword >in</span> <span class=hljs-built_in >Int16</span>(<span class=hljs-number >1</span>):<span class=hljs-built_in >Int16</span>(<span class=hljs-number >3000</span>)
+            keep(y)
+        <span class=hljs-keyword >end</span>
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span></code></pre> <p>We have some global constants for the limited set of registers that are required for a blinking LED example, a function for setting the contents of a register via its address in the memory map, another function for making sure some data survives through the compiler and into the final assembly and doesn&#39;t get eliminated, and finally the actual code showcasing the example. All in all, a pretty ugly 76 LOC for a meager result.</p> <p>In the first step to improve this and to make writing new projects using those same building blocks easier, I ended up writing a new julia package handling all of this, while providing the utilities required - <a href="https://github.com/Seelengrab/AVRDevices.jl"><code>AVRDevices.jl</code></a>. It&#39;s heavily inspired by the awesome <a href="https://github.com/avr-rust">avr-rust project</a>, which was very helpful in figuring out what kinds of features would be nice to have in a library like this.</p> <p>The second step was wrapping the compiler functions up into its own package as well, <a href="https://github.com/Seelengrab/AVRCompiler.jl"><code>AVRCompiler.jl</code></a>. There&#39;s a bunch of stuff that could be done there, like having <code>JLL</code>s from <a href="https://binarybuilder.org">BinaryBuilder</a> for linking and flashing onto a connected device, or maybe just relying on the already-required AVR compatible LLVM. I haven&#39;t gotten to that yet though and so it&#39;s just the existing functions, wrapped up into a package for now.</p> <h2 id=dev-ux_a_kingdom_for_nice_dev-ux ><a href="#dev-ux_a_kingdom_for_nice_dev-ux" class=header-anchor >Dev-UX&#33; A kingdom for nice Dev-UX&#33;</a></h2> <p>So, what <em>are</em> actually a nice set of features here? Some form of static checking would be nice, to be sure that I can&#39;t construct an invalid configuration/register state from unrelated constants on accident. Also, building the desired state up step-by-step and only writing it out once - writing to a register takes much more time if done on a per-bit basis, and if we&#39;re hardcoding a static configuration it&#39;s also much nicer to have it all constant fold away into a single write to a register. </p> <p>With this wishlist in mind, here&#39;s what I&#39;ve come up with:</p> <pre><code class="julia hljs"><span class=hljs-keyword >struct</span> Register{Reg, T &lt;: Base.BitInteger}
+    ptr::<span class=hljs-built_in >Ptr</span>{T}
+    Register{Reg, T}(x::<span class=hljs-built_in >Ptr</span>{T}) <span class=hljs-keyword >where</span> {Reg, T} = new{Reg, T}(x)
+    Register{Reg, T}(x::Base.BitInteger) <span class=hljs-keyword >where</span> {Reg, T} = new{Reg, T}(<span class=hljs-built_in >Ptr</span>{T}(x % <span class=hljs-built_in >UInt</span>)) <span class=hljs-comment ># Ptr only takes Union{Int, UInt, Ptr}...</span>
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >struct</span> Pin{RT, Reg, Bit, Mask}
+    <span class=hljs-keyword >function</span> Pin{Reg, bit}() <span class=hljs-keyword >where</span> {Reg, bit}
+        T = typeof(Reg)
+        mask = eltype(Reg)(<span class=hljs-number >1</span> &lt;&lt; (bit - <span class=hljs-number >1</span>))
+        new{T, Reg, bit, mask}()
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >struct</span> RegisterBits{Reg, T}
+    bits::T
+<span class=hljs-keyword >end</span></code></pre> <p>The first type is just a wrapper around a raw pointer - it will be the equivalent of what <code>const DDRB &#61; Ptr&#123;UInt8&#125;&#40;36&#41;</code> was in the ad-hoc implementation, representing a register. The second type is a single bit of one of those registers. It will be used for reading &amp; writing just that bit, as well as for building objects of the third type, which represents the bitmasks we use when building a successive value.</p> <p>For reading registers/pins, I&#39;ve implemented <code>getindex&#40;::T&#41;</code>, which is just a forward to the <code>volatile_load</code> of the correct pointer size:</p> <pre><code class="julia hljs">Base.getindex(r::Register) = volatile_load(r)</code></pre>
+<p>This does hook into the same exact machinery that regular <code>Array</code>s in julia use - so in a sense, <code>Register</code> and <code>Pin</code> are a kind of array&#33;</p>
+<p>For <code>Pin</code>s, at the moment this has a <code>volatile_load</code> of the register and masks the bit out, though I may change that later to a simple bit load &#40;<code>BLD</code>&#41; instruction, so that a load requires fewer cycles. I haven&#39;t actually clocked/checked whether this is worth it though, since using that instruction means I have to get the value out of a special bit of the <code>SREG</code> register &#40;which could be as expensive as just loading directly&#41;.</p>
+<p>Similarly, I&#39;ve defined <code>setindex</code> to allow setting a whole value or just a single bit:</p>
+<pre><code class="julia hljs">Base.setindex!(r::Register{Reg, T}, data::T) <span class=hljs-keyword >where</span> {Reg, T} = volatile_store!(r, data)
+Base.setindex!(r::Register{Reg, T}, rb::RegisterBits{Reg, T}) <span class=hljs-keyword >where</span> {Reg, T} = volatile_store!(r, rb.bits)
+Base.setindex!(r::RT, _::Pin{RT, Reg, b, m}) <span class=hljs-keyword >where</span> {RT, Reg, b, m} = volatile_store!(r, m)</code></pre>
+<p>These definitions allow this syntax to work<sup id="fnref:cmacro"><a href="#fndef:cmacro" class=fnref >[1]</a></sup> :</p>
+<pre><code class="julia hljs">val = Register[] <span class=hljs-comment ># load the current value of the register</span>
+val = Pin1[] <span class=hljs-comment ># load a Boolean value depending on whether or not `Pin1` is set</span>
+Register[] = val <span class=hljs-comment ># write a value to the register</span>
+Pin1[] = <span class=hljs-literal >true</span> <span class=hljs-comment ># set the bit named `Pin1` - errors if the RHS is not a boolean</span>
+Register[] = Pin1 <span class=hljs-comment ># set only `Pin1` of `Register` to 1 and the rest to 0</span>
+Register[] = Pin1 | Pin2 <span class=hljs-comment ># set `Pin1` and `Pin2` of `Register` with a single write, the rest to 0</span>
+Register[] |= Pin1 <span class=hljs-comment ># set `Pin1` but leave the others alone</span></code></pre>
+<p><code>Pin1 | Pin2</code> is also implemented, which returns a <code>RegisterBits</code> value holding the bitwise-ORed masks of each pin. The same goes for <code>&amp;</code>, unary <code>~</code> &#40;for bitwise negation of the pin mask&#41; and <code>xor</code>.</p>
+<p>In the same vein, <code>val &#61; Pin&#91;&#93;</code> and <code>Pin&#91;&#93; &#61; true</code> or <code>Pin&#91;&#93; &#61; false</code> get, set or clear the respective bit of the register the pin is on.</p>
+<p>What&#39;s very important here is that the type parameters of <code>Register&#123;Reg, T&#125;</code> and e.g. <code>RegisterBits&#123;Reg, T&#125;</code> have to match - thereby enforcing that we can only use <code>RegisterBits</code> intended for that very <code>Register</code> to be used when setting the value. The same is the case for the <code>Pin1 | Pin2</code> style operations of combining pins - the targeted register has to match.</p>
+<p>These very general definitions of the structs themselves have found their new home in the <code>Common</code> submodule of <code>AVRDevices.jl</code>, since they&#39;re common to all AVR chips. They can probably be used for any chip that memory-maps registers to specific addresses, but factoring that out can easily be done later.</p>
+<p>Defining registers and their pins now is as simple as having a microcontroller specific submodule with global constants:</p>
+<pre><code class="julia hljs"><span class=hljs-comment ># a shorthand - `R` just makes the register name available for dispatch, to get the type safety we wanted</span>
+<span class=hljs-comment ># `UInt8` is just the native size of the register</span>
+<span class=hljs-keyword >const</span> Ru8{R} = Register{R, <span class=hljs-built_in >UInt8</span>}
+
+<span class=hljs-keyword >const</span> PINB   = Ru8{:PINB}(<span class=hljs-number >0x23</span>)
+<span class=hljs-keyword >const</span> DDRB   = Ru8{:DDRB}(<span class=hljs-number >0x24</span>)
+<span class=hljs-keyword >const</span> PORTB  = Ru8{:PORTB}(<span class=hljs-number >0x25</span>)
+
+<span class=hljs-keyword >for</span> p <span class=hljs-keyword >in</span> <span class=hljs-number >0</span>:<span class=hljs-number >7</span>
+    _p = p+<span class=hljs-number >1</span>
+    pinb  = <span class=hljs-built_in >Symbol</span>(:PINB,  p)
+    ddrb  = <span class=hljs-built_in >Symbol</span>(:DDRB,  p)
+    portb = <span class=hljs-built_in >Symbol</span>(:PORTB, p)
+    <span class=hljs-comment ># we&#x27;re creating the pin bindings in the submodule dynamically</span>
+    <span class=hljs-meta >@eval</span> <span class=hljs-keyword >begin</span>
+       <span class=hljs-keyword >const</span> $pinb  = Pin{PINB,  $_p}()
+       <span class=hljs-keyword >const</span> $ddrb  = Pin{DDRB,  $_p}()
+       <span class=hljs-keyword >const</span> $portb = Pin{PORTB, $_p}()
+       <span class=hljs-keyword >export</span> $pinb, $ddrb, $portb
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-comment ># ...</span>
+<span class=hljs-comment ># and so on for ~600 LOC :&#x27;)</span></code></pre>
+<p>I spent a full day on these constants, writing them out by hand. I only learnt afterwards that I could have generated these from some XML file :&#39;&#41; I&#39;m telling myself that I didn&#39;t know the exact interface I wanted to use yet &#40;which was true, the interface evolved while writing out pins &amp; bits one by one&#41;, but I&#39;ll definitely do that for the next chip. Regardless, now all of the registers and their individual pins should be defined as constants under the <code>AVRDevies.ATmega328p</code> submodule, since those pins and registers are for that chip. Full disclosure though, I do not own other chips that I could target with this, so unless someone else wants to contribute, it&#39;ll probably stay like this for now.</p>
+<table class=fndef  id="fndef:cmacro">
+    <tr>
+        <td class=fndef-backref ><a href="#fnref:cmacro">[1]</a>
+        <td class=fndef-content >To be clear here - this allows me to use the exact same syntax for reading &amp; writing a single bit of a register while also using that same syntax in <code>if</code> branches. Working on this syntax also lead to challenging some friends of mine to express the exact same convenience in C, which nerdsniped them for about an hour.. :&#41; Can you figure out the trick? The rules were the following: 1&#41; <code>val &#61; FOOBAR</code> reads the bit <code>FOOBAR</code> of a register as a boolean value &#40;no truthiness&#41;; 2&#41; <code>FOOBAR &#61; true</code> must write only that bit; 3&#41; <code>if FOOBAR</code> must also be possible for branching. You are free to replace <code>FOOBAR</code> with whatever you want, as long as it&#39;s the exact same in all three places.
+    
+</table>
+
+<h2 id=a_new_blinking_hope ><a href="#a_new_blinking_hope" class=header-anchor >A new blinking Hope</a></h2>
+<p>Well, with the definitions from above, the small blinking LED example truly is small now&#33; It looks like this:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >module</span> blink_led
+
+<span class=hljs-keyword >using</span> AVRDevices.Common
+<span class=hljs-keyword >using</span> AVRDevices.ATmega328p
+
+<span class=hljs-keyword >function</span> main()
+    DDRB[] = DDRB1
+    
+    <span class=hljs-keyword >while</span> <span class=hljs-literal >true</span>
+        PORTB[] =  PORTB1
+        delay_ms(<span class=hljs-number >1000</span>)
+        
+        PORTB[] = ~PORTB1
+        delay_ms(<span class=hljs-number >1000</span>)
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >end</span></code></pre>
+<p>Yes, that&#39;s it&#33; Truly as small as it should be - and the best part? The generated assembly is near identical, modulo some differences in the timing loops:</p>
+<pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> AVRCompiler, blink_led
+
+julia&gt; AVRCompiler.builddump(blink_led.main, ())
+[ Info: Creating compiler job <span class=hljs-keyword >for</span> &#x27;main(())&#x27;
+[ Info: Compiling AVR ASM <span class=hljs-keyword >for</span> &#x27;main(())&#x27;
+[ Info: Bulding LLVM IR <span class=hljs-keyword >for</span> &#x27;main(())&#x27;
+
+/tmp/jl_KdR68K:     file format elf32-avr
+
+
+Disassembly of section .text:
+
+<span class=hljs-number >00000000</span> &lt;julia_blink_led_main&gt;:
+   <span class=hljs-number >0</span>:	<span class=hljs-number >0</span>f <span class=hljs-number >93</span>       	push	r16
+   <span class=hljs-number >2</span>:	<span class=hljs-number >1</span>f <span class=hljs-number >93</span>       	push	r17
+   <span class=hljs-number >4</span>:	<span class=hljs-number >42</span> e0       	ldi	r20, <span class=hljs-number >0x02</span>	; <span class=hljs-number >2</span>
+   <span class=hljs-number >6</span>:	<span class=hljs-number >44</span> b9       	out	<span class=hljs-number >0x04</span>, r20	; <span class=hljs-number >4</span>
+   <span class=hljs-number >8</span>:	<span class=hljs-number >61</span> e0       	ldi	r22, <span class=hljs-number >0x01</span>	; <span class=hljs-number >1</span>
+   a:	<span class=hljs-number >70</span> e0       	ldi	r23, <span class=hljs-number >0x00</span>	; <span class=hljs-number >0</span>
+   c:	<span class=hljs-number >80</span> e0       	ldi	r24, <span class=hljs-number >0x00</span>	; <span class=hljs-number >0</span>
+   e:	<span class=hljs-number >90</span> e0       	ldi	r25, <span class=hljs-number >0x00</span>	; <span class=hljs-number >0</span>
+  <span class=hljs-number >10</span>:	<span class=hljs-number >21</span> e0       	ldi	r18, <span class=hljs-number >0x01</span>	; <span class=hljs-number >1</span>
+  <span class=hljs-number >12</span>:	<span class=hljs-number >39</span> e0       	ldi	r19, <span class=hljs-number >0x09</span>	; <span class=hljs-number >9</span>
+  <span class=hljs-number >14</span>:	<span class=hljs-number >5</span>d ef       	ldi	r21, <span class=hljs-number >0xFD</span>	; <span class=hljs-number >253</span>
+  <span class=hljs-number >16</span>:	<span class=hljs-number >45</span> b9       	out	<span class=hljs-number >0x05</span>, r20	; <span class=hljs-number >5</span>
+  <span class=hljs-number >18</span>:	<span class=hljs-number >06</span> <span class=hljs-number >2</span>f       	mov	r16, r22
+  <span class=hljs-number >1</span>a:	<span class=hljs-number >17</span> <span class=hljs-number >2</span>f       	mov	r17, r23
+  <span class=hljs-number >1</span>c:	e0 <span class=hljs-number >2</span>f       	mov	r30, r16
+  <span class=hljs-number >1</span>e:	f1 <span class=hljs-number >2</span>f       	mov	r31, r17
+  <span class=hljs-number >20</span>:	a8 <span class=hljs-number >2</span>f       	mov	r26, r24
+  <span class=hljs-number >22</span>:	b9 <span class=hljs-number >2</span>f       	mov	r27, r25
+  <span class=hljs-number >24</span>:	<span class=hljs-number >11</span> <span class=hljs-number >97</span>       	sbiw	r26, <span class=hljs-number >0x01</span>	; <span class=hljs-number >1</span>
+  <span class=hljs-number >26</span>:	<span class=hljs-number >01</span> f4       	brne	.+<span class=hljs-number >0</span>      	; <span class=hljs-number >0x28</span> &lt;julia_blink_led_main+<span class=hljs-number >0x28</span>&gt;
+			<span class=hljs-number >26</span>: R_AVR_7_PCREL	.text+<span class=hljs-number >0x24</span>
+  <span class=hljs-number >28</span>:	<span class=hljs-number >31</span> <span class=hljs-number >96</span>       	adiw	r30, <span class=hljs-number >0x01</span>	; <span class=hljs-number >1</span>
+  <span class=hljs-number >2</span>a:	<span class=hljs-number >0</span>d <span class=hljs-number >33</span>       	cpi	r16, <span class=hljs-number >0x3D</span>	; <span class=hljs-number >61</span>
+  <span class=hljs-number >2</span>c:	<span class=hljs-number >11</span> <span class=hljs-number >05</span>       	cpc	r17, r1
+  <span class=hljs-number >2</span>e:	<span class=hljs-number >0</span>e <span class=hljs-number >2</span>f       	mov	r16, r30
+  <span class=hljs-number >30</span>:	<span class=hljs-number >1</span>f <span class=hljs-number >2</span>f       	mov	r17, r31
+  <span class=hljs-number >32</span>:	<span class=hljs-number >01</span> f4       	brne	.+<span class=hljs-number >0</span>      	; <span class=hljs-number >0x34</span> &lt;julia_blink_led_main+<span class=hljs-number >0x34</span>&gt;
+			<span class=hljs-number >32</span>: R_AVR_7_PCREL	.text+<span class=hljs-number >0x20</span>
+  <span class=hljs-number >34</span>:	a2 <span class=hljs-number >2</span>f       	mov	r26, r18
+  <span class=hljs-number >36</span>:	b3 <span class=hljs-number >2</span>f       	mov	r27, r19
+  <span class=hljs-number >38</span>:	<span class=hljs-number >11</span> <span class=hljs-number >97</span>       	sbiw	r26, <span class=hljs-number >0x01</span>	; <span class=hljs-number >1</span>
+  <span class=hljs-number >3</span>a:	<span class=hljs-number >01</span> f4       	brne	.+<span class=hljs-number >0</span>      	; <span class=hljs-number >0x3c</span> &lt;julia_blink_led_main+<span class=hljs-number >0x3c</span>&gt;
+			<span class=hljs-number >3</span>a: R_AVR_7_PCREL	.text+<span class=hljs-number >0x38</span>
+  <span class=hljs-number >3</span>c:	<span class=hljs-number >55</span> b9       	out	<span class=hljs-number >0x05</span>, r21	; <span class=hljs-number >5</span>
+  <span class=hljs-number >3</span>e:	<span class=hljs-number >06</span> <span class=hljs-number >2</span>f       	mov	r16, r22
+  <span class=hljs-number >40</span>:	<span class=hljs-number >17</span> <span class=hljs-number >2</span>f       	mov	r17, r23
+  <span class=hljs-number >42</span>:	e0 <span class=hljs-number >2</span>f       	mov	r30, r16
+  <span class=hljs-number >44</span>:	f1 <span class=hljs-number >2</span>f       	mov	r31, r17
+  <span class=hljs-number >46</span>:	a8 <span class=hljs-number >2</span>f       	mov	r26, r24
+  <span class=hljs-number >48</span>:	b9 <span class=hljs-number >2</span>f       	mov	r27, r25
+  <span class=hljs-number >4</span>a:	<span class=hljs-number >11</span> <span class=hljs-number >97</span>       	sbiw	r26, <span class=hljs-number >0x01</span>	; <span class=hljs-number >1</span>
+  <span class=hljs-number >4</span>c:	<span class=hljs-number >01</span> f4       	brne	.+<span class=hljs-number >0</span>      	; <span class=hljs-number >0x4e</span> &lt;julia_blink_led_main+<span class=hljs-number >0x4e</span>&gt;
+			<span class=hljs-number >4</span>c: R_AVR_7_PCREL	.text+<span class=hljs-number >0x4a</span>
+  <span class=hljs-number >4</span>e:	<span class=hljs-number >31</span> <span class=hljs-number >96</span>       	adiw	r30, <span class=hljs-number >0x01</span>	; <span class=hljs-number >1</span>
+  <span class=hljs-number >50</span>:	<span class=hljs-number >0</span>d <span class=hljs-number >33</span>       	cpi	r16, <span class=hljs-number >0x3D</span>	; <span class=hljs-number >61</span>
+  <span class=hljs-number >52</span>:	<span class=hljs-number >11</span> <span class=hljs-number >05</span>       	cpc	r17, r1
+  <span class=hljs-number >54</span>:	<span class=hljs-number >0</span>e <span class=hljs-number >2</span>f       	mov	r16, r30
+  <span class=hljs-number >56</span>:	<span class=hljs-number >1</span>f <span class=hljs-number >2</span>f       	mov	r17, r31
+  <span class=hljs-number >58</span>:	<span class=hljs-number >01</span> f4       	brne	.+<span class=hljs-number >0</span>      	; <span class=hljs-number >0x5a</span> &lt;julia_blink_led_main+<span class=hljs-number >0x5a</span>&gt;
+			<span class=hljs-number >58</span>: R_AVR_7_PCREL	.text+<span class=hljs-number >0x46</span>
+  <span class=hljs-number >5</span>a:	a2 <span class=hljs-number >2</span>f       	mov	r26, r18
+  <span class=hljs-number >5</span>c:	b3 <span class=hljs-number >2</span>f       	mov	r27, r19
+  <span class=hljs-number >5</span>e:	<span class=hljs-number >11</span> <span class=hljs-number >97</span>       	sbiw	r26, <span class=hljs-number >0x01</span>	; <span class=hljs-number >1</span>
+  <span class=hljs-number >60</span>:	<span class=hljs-number >01</span> f4       	brne	.+<span class=hljs-number >0</span>      	; <span class=hljs-number >0x62</span> &lt;julia_blink_led_main+<span class=hljs-number >0x62</span>&gt;
+			<span class=hljs-number >60</span>: R_AVR_7_PCREL	.text+<span class=hljs-number >0x5e</span>
+  <span class=hljs-number >62</span>:	<span class=hljs-number >00</span> c0       	rjmp	.+<span class=hljs-number >0</span>      	; <span class=hljs-number >0x64</span> &lt;julia_blink_led_main+<span class=hljs-number >0x64</span>&gt;
+			<span class=hljs-number >62</span>: R_AVR_13_PCREL	.text+<span class=hljs-number >0x16</span></code></pre>
+<p>Don&#39;t mind the relative jump labels, the output is pre-linking :&#41;</p>
+<p>The timing loops are all inlined since the functions are very small, but if you squint, they are still there. Note the instructions at <code>0x16</code> and <code>0x3c</code>:</p>
+<pre><code class="avrasm hljs">...
+   <span class=hljs-number >4</span>:	<span class=hljs-number >42</span> e0       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r20</span>, <span class=hljs-number >0x02</span>	<span class=hljs-comment >; 2   -- this is 0b00000010</span>
+...
+  <span class=hljs-number >14</span>:	<span class=hljs-number >5</span>d ef       	<span class=hljs-keyword >ldi</span>	<span class=hljs-built_in >r21</span>, <span class=hljs-number >0xFD</span>	<span class=hljs-comment >; 253 -- this is 0b11111101</span>
+...
+  <span class=hljs-number >16</span>:	<span class=hljs-number >45</span> b9       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x05</span>, <span class=hljs-built_in >r20</span>	<span class=hljs-comment >; 5   -- Address 5 is PORTB</span>
+...
+  <span class=hljs-number >3</span>c:	<span class=hljs-number >55</span> b9       	<span class=hljs-keyword >out</span>	<span class=hljs-number >0x05</span>, <span class=hljs-built_in >r21</span>	<span class=hljs-comment >; 5</span>
+...</code></pre>
+<p>The whole chain of <code>PORTB&#91;&#93; &#61; PORTB1</code> and <code>PORTB&#91;&#93; &#61; ~PORTB1</code>, which is just defined as regular old julia functions operating on constants, got compiled away to <em>a single <code>out</code></em>&#33; If that&#39;s not a zero-cost abstraction, it&#39;s pretty darn close. Granted, the assembly could probably be smaller still &#40;the timing code is mostly concerned with being somewhat accurate, not small&#41;, but I haven&#39;t looked into how to make LLVM optimize for space yet and how to do that from julia.</p>
+<h2 id=serial_experiments_julia ><a href="#serial_experiments_julia" class=header-anchor >Serial Experiments Julia </a></h2>
+<p>And now for a bit of a surprise - at least half of my motivation for cleaning up the utilities for reading &amp; setting registers in the first place was to implement a small serial library. I wanted to know how using the new register definitions would feel for a more involved project, as well as how zero-cost the abstractions cooked up actually are.</p>
+<p>I&#39;ve got to say - I&#39;m VERY pleased with how it turned out. Without further ado, here&#39;s the initialisation logic for the <code>USART0</code> on this <code>ATmega328p</code>:</p>
+<pre><code class="julia hljs"><span class=hljs-meta >@enum</span> Parity None Even Odd
+<span class=hljs-meta >@enum</span> StopBits One Two
+
+<span class=hljs-keyword >function</span> calc_baud(baud)
+    ubrr = (((CPU_FREQUENCY_HZ() ÷ <span class=hljs-number >16</span>) ÷ baud) - <span class=hljs-number >0x1</span>) % <span class=hljs-built_in >UInt16</span>
+    high = (ubrr &gt;&gt; <span class=hljs-number >0x8</span>) % <span class=hljs-built_in >UInt8</span>
+    low  =  ubrr         % <span class=hljs-built_in >UInt8</span>
+    high, low
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >struct</span> USART0{N} &lt;: <span class=hljs-built_in >IO</span>
+    <span class=hljs-keyword >function</span> USART0{ndata}(; baud::<span class=hljs-built_in >Int</span>=<span class=hljs-number >9600</span>, async::<span class=hljs-built_in >Bool</span>=<span class=hljs-literal >false</span>, parity::Parity=None, nstop::StopBits=Two) <span class=hljs-keyword >where</span> ndata
+        hi, lo = calc_baud(baud)
+        UBBR0H[] = hi
+        UBBR0L[] = lo
+
+        <span class=hljs-comment ># now enable the USART</span>
+        UCSR0B[] = RXEN0 | TXEN0
+
+        <span class=hljs-keyword >if</span> async 
+            UCSR0A[] |= U2X0
+        <span class=hljs-keyword >end</span>
+
+        c_mask = zero(UCSR0C)
+        <span class=hljs-comment ># set stop bits</span>
+        <span class=hljs-keyword >if</span> nstop === One
+            <span class=hljs-comment ># nothing to set</span>
+        <span class=hljs-keyword >elseif</span> nstop === Two
+            c_mask |= USBS0
+        <span class=hljs-keyword >end</span>
+        
+        <span class=hljs-comment ># set frame length</span>
+        <span class=hljs-keyword >if</span> ndata == <span class=hljs-number >0x5</span>
+            <span class=hljs-comment ># no extra registers</span>
+        <span class=hljs-keyword >elseif</span> ndata == <span class=hljs-number >0x6</span>
+            c_mask |=                   UCSZ00
+        <span class=hljs-keyword >elseif</span> ndata == <span class=hljs-number >0x7</span>
+            c_mask |=          UCSZ01
+        <span class=hljs-keyword >elseif</span> ndata == <span class=hljs-number >0x8</span>
+            c_mask |=          UCSZ01 | UCSZ00
+        <span class=hljs-keyword >elseif</span> ndata == <span class=hljs-number >0x9</span>
+            c_mask |= UCSZ02 | UCSZ01 | UCSZ00
+        <span class=hljs-keyword >end</span>
+        
+        <span class=hljs-comment ># set parity</span>
+        <span class=hljs-keyword >if</span> parity === None
+            <span class=hljs-comment ># no bits set</span>
+        <span class=hljs-keyword >elseif</span> parity === Even
+            c_mask |= UPM01
+        <span class=hljs-keyword >elseif</span> parity === Odd
+            c_mask |= UPM01 | UPM00
+        <span class=hljs-keyword >end</span>
+        
+        UCSR0C[] = c_mask
+        
+        new{ndata}()
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span>
+USART0(;kwargs...) = USART0{<span class=hljs-number >0x8</span>}(;kwargs...)</code></pre>
+<p>Not all modes supported by the hardware are also already supported by my software - 9-bit frame length in particular is a bit tricky when writing data, as there&#39;s a lot of shifting to do..</p>
+<p>Regardless, the default of 9600 baud, a framewidth of 8 bits and some stop bits, together with some functions for actually writing data to this thing can be used to compile this example code:</p>
+<pre><code class="julia hljs"><span class=hljs-keyword >module</span> uart_example
+
+<span class=hljs-keyword >using</span> AVRDevices.Common
+<span class=hljs-keyword >using</span> AVRDevices.ATmega328p
+
+<span class=hljs-keyword >function</span> main()
+    s = USART0()
+
+    idx = <span class=hljs-number >0x0</span>
+    <span class=hljs-keyword >while</span> <span class=hljs-literal >true</span>
+        write(s, idx)
+        idx += <span class=hljs-number >0x1</span>
+        delay_ms(<span class=hljs-number >100</span>)
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >end</span> <span class=hljs-comment ># module uart_example</span></code></pre>
+<p>into this rather beautiful assembly:</p>
+<pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> AVRCompiler, uart_example
+
+julia&gt; AVRCompiler.builddump(uart_example.main, ())
+[ Info: Creating compiler job <span class=hljs-keyword >for</span> &#x27;main(())&#x27;
+[ Info: Bulding LLVM IR <span class=hljs-keyword >for</span> &#x27;main(())&#x27;
+[ Info: Compiling AVR ASM <span class=hljs-keyword >for</span> &#x27;main(())&#x27;
+
+/tmp/jl_ZgNG5F:     file format elf32-avr
+
+
+Disassembly of section .text:
+
+<span class=hljs-number >00000000</span> &lt;julia_uart_example_main&gt;:
+   <span class=hljs-number >0</span>:	af <span class=hljs-number >92</span>       	push	r10
+   <span class=hljs-number >2</span>:	bf <span class=hljs-number >92</span>       	push	r11
+   <span class=hljs-number >4</span>:	cf <span class=hljs-number >92</span>       	push	r12
+   <span class=hljs-number >6</span>:	df <span class=hljs-number >92</span>       	push	r13
+   <span class=hljs-number >8</span>:	ff <span class=hljs-number >92</span>       	push	r15
+   a:	<span class=hljs-number >0</span>f <span class=hljs-number >93</span>       	push	r16
+   c:	<span class=hljs-number >1</span>f <span class=hljs-number >93</span>       	push	r17
+   e:	<span class=hljs-number >10</span> <span class=hljs-number >92</span> c5 <span class=hljs-number >00</span> 	sts	<span class=hljs-number >0x00C5</span>, r1	; <span class=hljs-number >0x8000c5</span> &lt;julia_uart_example_main+<span class=hljs-number >0x8000c5</span>&gt;
+  <span class=hljs-number >12</span>:	<span class=hljs-number >87</span> e6       	ldi	r24, <span class=hljs-number >0x67</span>	; <span class=hljs-number >103</span>
+  <span class=hljs-number >14</span>:	<span class=hljs-number >80</span> <span class=hljs-number >93</span> c4 <span class=hljs-number >00</span> 	sts	<span class=hljs-number >0x00C4</span>, r24	; <span class=hljs-number >0x8000c4</span> &lt;julia_uart_example_main+<span class=hljs-number >0x8000c4</span>&gt;
+  <span class=hljs-number >18</span>:	<span class=hljs-number >88</span> e1       	ldi	r24, <span class=hljs-number >0x18</span>	; <span class=hljs-number >24</span>
+  <span class=hljs-number >1</span>a:	<span class=hljs-number >80</span> <span class=hljs-number >93</span> c1 <span class=hljs-number >00</span> 	sts	<span class=hljs-number >0x00C1</span>, r24	; <span class=hljs-number >0x8000c1</span> &lt;julia_uart_example_main+<span class=hljs-number >0x8000c1</span>&gt;
+  <span class=hljs-number >1</span>e:	<span class=hljs-number >8</span>e e0       	ldi	r24, <span class=hljs-number >0x0E</span>	; <span class=hljs-number >14</span>
+  <span class=hljs-number >20</span>:	<span class=hljs-number >80</span> <span class=hljs-number >93</span> c2 <span class=hljs-number >00</span> 	sts	<span class=hljs-number >0x00C2</span>, r24	; <span class=hljs-number >0x8000c2</span> &lt;julia_uart_example_main+<span class=hljs-number >0x8000c2</span>&gt;
+...</code></pre>
+<p>which <em>again</em> compiles all that &quot;dynamic&quot; function work completely away into just those 4 stores to <code>UCSR0B</code>, <code>UCSR0C</code>, <code>UBBRH</code> and <code>UBBRL</code>, otherwise known as the control registers for <code>USART0</code>. Flashing in the usual fashion, as well as connecting a cheap knock-off logic analyzer I recently bought &#40;this is not a Saleae - I cannot afford those&#33;&#41; to the output pins gives us...</p>
+<p style="display: flex; justify-content: center;">
+    <video style="max-width: 80%; width: auto; height: auto" controls preload=metadata >
+        <source src='./uart_example.webm' type="video/webm"/>
+        Your browser does not support the video tag.
+    </video>
+</p>
+
+<p>Another few days well spent, I say :D The thumb is me holding down the &quot;Reset&quot; button of the arduino, so I can capture the first sent byte. Also apologies for the video quality - there&#39;s a lot going on here visually and this bad version is still 3.3MB :/</p>
+<p>And here&#39;s a view of the received data as a table, from the wonderful Saleae software:</p>
+<div class=imgcenter ><img src="./data_table.png" alt="" /></div>
+<p>Their software is REALLY nice, even though my bootlegged, third-party, underpowered logic analyzer can absolutely not keep up with all 24MS/s :&#41; I do wish it had HiDPI support on my archlinux/wayland setup, but since this is not even close to being a supported platform, I guess that&#39;s fair.</p>
+<p>The 100ms delay between each sent packet is nicely visible and not too far off, even though it&#39;s just a rough busy waiting approach.</p>
+<h2 id=limitations_ux_in_development ><a href="#limitations_ux_in_development" class=header-anchor >Limitations &amp; UX in development</a></h2>
+<p>Since I did it last time, I&#39;ll do it again and write a bit about things &amp; problems I encountered during development that are probably totally fixable and/or are just a sign that this is a really untrodden <s>road</s> <s>path</s> piece of land. But that&#39;s ok&#33;</p>
+<p>One thing is certain: runtime errors &#40;which all errors in julia are, save for syntax errors&#41; are difficult to debug. Since the functions of the runtime that would be called are not there, almost everything aside from the error is optimized away. Moreover, since they often have dynamic allocations and other nastiness, often the only way to figure out what is happening when the LLVM-IR or ASM doesn&#39;t look like you&#39;d expect is to jump into <code>@code_llvm</code>, dump the LLVM module that is generated, figure out whether there&#39;s dynamic dispatch &#40;requiring the runtime&#41; with JET.jl and Cthulhu.jl and thus having to be VERY careful not to be type unstable. The good news is that these are easily detectable in the IR, because they have a very distinct pattern to them, since throwing errors or dispatching dynamically have to interact with the runtime. Possible solutions are </p>
+<ol>
+<li><p>make them both compile time errors? There&#39;s no stack unwinding and dynamic dispatch is weird</p>
+
+<li><p>Highjack the USART on an error to print the error &#40;no idea how we&#39;d print stacktraces?&#41; and make the dynamic dispatch require all possible methods to be compiled as well</p>
+
+</ol>
+<p>I can say with high confidence that 1&#41; is much easier than 2&#41; - it&#39;s &quot;just&quot; a pass over LLVM IR that ends up throwing an error. The latter is definitely a big engineering project on its own though and also requires decisions in terms of how the USART should be used. This is not a microcontroller OS after all and such decisions can&#39;t necessarily be made by this library providing that functionality - the USART may be configured differently after all &#40;though it may be possible to check if it&#39;s enabled, enable if necessary, otherwise just write the error out..&#41;.</p>
+<p>And speaking of errors: Keen eyes looking at the <code>AVRDevices.jl</code> repository will have noticed one curious thing: there are no tests&#33; None&#33; Zero&#33; I know that this isn&#39;t good, but it&#39;s not like I have CI set up for arduino deployment. I only have one arduino and testing most of the functionality requires writing to &#40;for regular systems&#41; small pointers that are most certainly out of range of allocations. Maybe something could be rigged up with <code>qemu</code>, but I doubt this will be particularly workable once I start to work with more complicated interactions, like writing to an SD card or similar. For now, I&#39;m trying to make use of the abstractions as best as I can and isolate some computations &#40;like the values that will be written into the USART control registers derived from a desired BAUD rate&#41; to at least make it possible to add some tests later.</p>
+<p>In terms of &quot;avoiding dynamicness&quot;, there&#39;s another issue. Some may have wondered why my example code for UART just increments a counter, instead of writing a more traditional <code>&quot;Hello World&#33;&quot;</code> string - well, the reason for that is that such a string constant is internally stored as some data blob. In the LLVM IR, this is then referenced as a literal pointer to the julia object - we&#39;re lying to the compiler after all and it just thinks that it always has access to an object it stores like that, which is obviously not the case if we then take the generated IR, create AVR assembly out of it and write it to a microcontroller, leaving the pointer pointing to nothingness. Perfectly fixable by having a custom compiler pass run over the LLVM IR, check out referenced global variables &#40;they&#39;re pretty easy to spot&#41; and replace them with constant references in the LLVM module. It just requires time to develop that pass that I have not yet had available :&#41; </p>
+<p>There&#39;s a similar situation with tuples, which DO make it into the IR, but which &#40;for some reason unkown to me&#41; do not survive the trip to AVR assembly. I have not yet investigated that, but this will probably happen in the course of trying to get strings to work.</p>
+<p>And finally, another headache: 64 bit integers&#33; Or any &quot;native&quot; datatype that doesn&#39;t have actual native hardware to use. You have to be really careful not to use too many general purpose registers, otherwise LLVM will yell at you for not being able to allocate registers, due to being helpful enough to emulate those larger types in software. My hope is that this can be helped in the future by making the default integer type be of word size &#40;or 16-bit, on this platform?&#41;, which would help tremendously with not having to walk on eggshells while developing.</p>
+<hr />
+<p>All that being said, if you have an arduino &#40;or any device, really&#41; with an ATmega328p and want to play around with this, the code I used for this is up on github now:</p>
+<ul>
+<li><p><a href="https://github.com/Seelengrab/AVRDevices.jl">AVRDevices.jl</a> - Device definition, common functionality and examples &#40;just blinking LEDs and UART for now&#41;</p>
+
+<li><p><a href="https://github.com/Seelengrab/AVRCompiler.jl">AVRCompiler.jl</a> - Utilities for compiling Julia to AVR</p>
+
+</ul>
+<p>Contributions are always welcome, judging from the list of things above this project is not going to run out of work any time soon :&#41; </p>
+<p>Also a big thanks to Julian Samaroo from the <a href="https://julialang.org/slack/">JuliaLang Slack</a> channel <code>#static-compilation</code>, who had a lot of ideas and Julia internals expertise when trying to figure out why strings don&#39;t &#40;yet&#41; work.</p>
+<h2 id=links_references ><a href="#links_references" class=header-anchor >Links &amp; References</a></h2>
+<ul>
+<li><p><a href="https://github.com/avr-rust">The AVR-Rust project</a></p>
+
+<li><p><a href="https://github.com/Seelengrab/AVRDevices.jl">AVRDevices.jl</a></p>
+
+<li><p><a href="https://github.com/Seelengrab/AVRCompiler.jl">AVRCompiler.jl</a></p>
+
+<li><p><a href="https://binarybuilder.org">BinaryBuilder</a></p>
+
+<li><p><a href="https://julialang.org/slack/">JuliaLang Slack</a></p>
+
+</ul>
+<p></p>
+<footer>
+    <a href="http://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> Sukera. Last modified: November 08, 2022.
+    Website built with <a href="https://github.com/tlienart/Franklin.jl">Franklin.jl</a>, the <a href="https://julialang.org">Julia programming language</a> and <span class=heart >♥</span>!
+</footer>
+</div>
+    
+    
+        
+<script>hljs.highlightAll();hljs.configure({tabReplace: '    '});</script>
