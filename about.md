@@ -11,9 +11,8 @@ as long as there's a way to profile it. Sometimes this requires restructuring ex
 on the severity of the issue, which is part of the fun! In recent times I've also dabbled a bit in compilers and thinking about
 static compilation in julia.
 
-I'm currently employed as a system administrator who also does devops, but am actively looking for a new position. If what I wrote above
-and/or what I write about in my blogposts sounds interesting to you, feel free to contact me under `valentin (at-symbol) bogad (dot-mark) at`.
-I've previously also worked as a software engineer. There also was a time where I was teaching Java to first & second semester undergrad
+If what I wrote above and/or what I write about in my blogposts sounds interesting to you, feel free to contact me under `valentin (at-symbol) bogad (dot-mark) at`.
+I've previously worked as a software engineer and also as system administrator. There also was a time where I was teaching Java to first & second semester undergrad
 students in the form of a tutoring position. The views, opinions and all other stuff on here are my own.
 
 What I decide to share here is generally licensed as [CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/), unless noted otherwise.
