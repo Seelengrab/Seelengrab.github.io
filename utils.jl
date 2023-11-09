@@ -34,16 +34,18 @@ function articles()
     arts
 end
 
+publishDate(article::String) = Date(first(eachline(joinpath(article, ".published"))))
+lastModification(article::String) = Date(first(eachline(joinpath(article, ".published"))))
+
 function hfun_allarticles()
     arts = articles()
     isempty(arts) && return "No articles written"
-    mtime(f) = stat(f).mtime
-    sort!(arts; by=mtime, rev=true)
+    sort!(arts; by=publishDate, rev=true)
     io = IOBuffer()
     write(io, "<ul>")
     for art in arts
         article = basename(art)
-        date = Date(unix2datetime(mtime(joinpath(art, ".published"))))
+        date = publishDate(art)
         write(io, """<li><a href='./$article/'>$date - $article</a></li>\n""")
     end
     write(io, "</ul>")
@@ -53,8 +55,7 @@ end
 function hfun_recentarticles()
     arts = articles()
     isempty(arts) && return "No articles written"
-    mtime(f) = stat(f).mtime
-    partialsort!(arts, 1:min(5,lastindex(arts)); by=mtime, rev=true)
+    partialsort!(arts, 1:min(5,lastindex(arts)); by=publishDate, rev=true)
     @info arts
     io = IOBuffer()
     write(io, """<ul class="recent">""")
