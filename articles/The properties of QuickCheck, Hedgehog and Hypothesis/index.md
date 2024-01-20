@@ -31,11 +31,11 @@ trade-offs are, in hopes of making the topic more accessible to others.
 If you're just here for a quick "what's the differences" kind of thing, there is a TL;DR at the bottom. How much
 that will help you if you're not already familiar with these frameworks is left as an exercise for the reader :)
 
-!!! Note "Naming"
-  There are a number of (sometimes conflicting) definitions of "property testing". For the purposes of this article,
-  property based testing refers to not only testing that some predicate holds, but also that the input is generated in
-  some manner smarter than simple random generation, e.g. by taking failures into account that subsequently guide generation
-  of new values. I'd classify simple random generation of input values as purely fuzzing.
+!!! note "Naming"
+    There are a number of (sometimes conflicting) definitions of "property testing". For the purposes of this article,
+    property based testing refers to not only testing that some predicate holds, but also that the input is generated in
+    some manner smarter than simple random generation, e.g. by taking failures into account that subsequently guide generation
+    of new values. I'd classify simple random generation of input values as purely fuzzing.
 
 ## The general flow
 
@@ -75,9 +75,9 @@ Both `should_generate` and `should_shrink` are some form of cancellation of the 
 or something else entirely. Suffice it to say, their purpose is to not get stuck in an infinite loop. If the user code in `predicate` loops endlessly, this will of course need to
 be cancelled through other means, but that is outside the purposes of this article.
 
-!!! Note "Not production ready"
-  The above pseudocode is only intended to illustrate the general flow of generation, testing & shrinking - no library I'm aware of actually uses a loop like that,
-  in part because `next_shrink` is really ambiguous. Please don't use this as a template for how your own library should work.
+!!! note "Not production ready"
+    The above pseudocode is only intended to illustrate the general flow of generation, testing & shrinking - no library I'm aware of actually uses a loop like that,
+    in part because `next_shrink` is really ambiguous. Please don't use this as a template for how your own library should work.
 
 ## QuickCheck and type based generation
 
@@ -236,33 +236,39 @@ the elements and can't start shrinking the length. This can result in bad shrink
 With objects being combined from more and more parts, this quickly becomes infeasible in terms of quality of shrinks.
 
 No, in order to shrink properly Hedgehog must look into the generators, take out their generator functions & shrinking functions, combine each and return an entirely
-new generator with a new (combined) shrinking function, creating an entirely different shrinking tree. This works, but is very complicated to implement and is, I suspect, the main reason Hedgehog is seldom used
-outside of Haskell (though there are a number of ports made by the community, they seem to be less sophisticated/well maintained than the Haskell counterpart - the Scala package seems to be a dead link now).
+new generator with a new (combined) shrinking function, creating an entirely different shrinking tree. This works, but is very complicated to implement. I suspect that this is the main reason Hedgehog is seldom used
+outside of Haskell. There are a number of ports made by the community, but they seem to be less sophisticated/well maintained than the Haskell counterpart. The Scala package linked to from the main Hedgehog website seems to be a dead link now.
 
-It should be noted that this same problem also occurs when trying to combine generators & shrinkers of QuickCheck, except that you can't try to solve the problem in a
-generic way there because the shrinker has no knowledge of the properties that were implicit to the _other_ generators. Everything needs a bespoke solution.
+It should be noted that this same problem also occurs when trying to combine generators & shrinkers of QuickCheck. In some sense the problem is worse there, because the shrinker has no knowledge of the properties that
+were implicit to the _other_ generators when trying to combine shrinkers. Everything needs a bespoke solution.
 
 If you want to read more about this problem, I can recommend [this article](https://well-typed.com/blog/2019/05/integrated-shrinking/) by Edsko de Vries, which
 was instrumental in my understanding of how Hedgehog works. The article goes into much more depth and very likely explains the subtleties involved with this approach better
-than this short description ever could.
+than this short description ever could. Be aware that it's dense with Haskell language though.
 
 ## Hypothesis and choice sequences
 
 A few years before Hedgehog was released, there was another contender for property based testing. Unlike Hedgehog & QuickCheck which came from the functional programming community,
-[Hypothesis](https://github.com/hypothesisworks/hypothesis) is a Python project - and perhaps because of that, it takes an entirely different approach compared to the mathematically derived approaches of these Haskell libraries.
+[Hypothesis](https://github.com/hypothesisworks/hypothesis) is a Python project - and perhaps because of that, it takes an entirely different approach compared to the mathematically derived inner workings of these Haskell libraries.
 
 Unlike Hedgehog & QuickCheck, Hypothesis internally places great emphasis on explicit management of the fact that it is a _testing framework_, and that there's associated state with
 one test execution. This is taken advantage of to allow a feature that neither Hedgehog nor QuickCheck have - dynamically manipulating the entire shrinking state & value generation,
 even while inside of a test. In particular, this means creating new values dependent on previously input values and having their influence on the outcome of the testcase also
-influence shrinking behaviour of the original value. For QuickCheck this is fairly obvious to see, since shrinking & generation are separated completely and the way a given test value
-was generated is not exposed at all. For Hedgehog, this is a bit more subtle - it's possible to get access to the original shrink tree, but merging that with an entirely new shrink tree is
+influence shrinking behaviour of the original value.
+
+For QuickCheck it is fairly obvious to see why it can't do this, since shrinking & generation are separated completely and the way a given test value
+was generated is not exposed inside of the test at all. For Hedgehog, this is a bit more subtle - it's possible to get access to the original shrink tree, but merging that with an entirely new shrink tree is
 highly nontrivial and might require reaching across different call stacks. The resulting API is also incredibly unwieldy, since a user needs to be intimately familiar with how
-Hedgehog works internally to be able to correctly combine these shrink trees by hand.
+Hedgehog works internally to be able to correctly combine these shrink trees by hand. Of course, this again is a bit easier in Haskell because of its laziness, which allows some easier access
+to the original shrink tree than in other statically typed languages.
 
 Hypothesis solves this issue elegantly, by decoupling the choices taken during generation from the actual generation of values entirely - it opts to track the entire decision history
-explicitly as a choice sequence, which is passed into each test case. This allows simply taking that choice sequence, adding arbitrary choices and using those to generate new values
-which will correctly influence all other choices taken too. Here's an example flow utilizing the `data()` strategy (a strategy is an object describing a way of generating objects),
-taken from the [Hypothesis documentation](https://hypothesis.readthedocs.io/en/latest/data.html#drawing-interactively-in-tests):
+explicitly as a choice sequence, which is passed into each test case too. This allows simply taking that choice sequence, adding arbitrary choices and using those to generate new values
+which will correctly influence all other choices taken too.
+
+To do this, Hypothesis has users compose so called "strategies". These strategies describe how to generate objects of a given type, with a given distribution, etc. One such strategy is
+`data()`, allowing access to _all possible strategies_ in the process of running the testcase itself.
+Here's an example, taken from the [Hypothesis documentation](https://hypothesis.readthedocs.io/en/latest/data.html#drawing-interactively-in-tests):
 
 ```python
 @given(data())
@@ -273,11 +279,12 @@ def test_draw_sequentially(data):
 ```
 
 Here, `data` represents any possible drawing strategy, effectively saying "add another choice using the given strategy to the choice sequence".
+The `assert` at the end serves as the marker that Hypothesis looks to falsify.
 
 Ultimately what shrinks is not the objects themselves, but the _choice sequence_ leading to those objects! By replaying a
-modified choice sequence (and thus constructing entirely new instances of the required objects), this modified choice sequence leads to shrunken values being passed into the testcase,
-which will then themselves correctly lead to shrunken values being produced inside of the testcase as well. An extensive description of this approach can be found in "Test-Case Reduction via Test-Case Generation:
-Insights From the Hypothesis Reducer" by MacIver & Donaldson (see [https://doi.org/10.4230/LIPIcs.ECOOP.2020.13](https://doi.org/10.4230/LIPIcs.ECOOP.2020.13)).
+modified choice sequence (and thus constructing entirely new instances of the required objects), this modified choice sequence leads to shrunken values being passed into the testcase.
+This modified choice sequence then itself correctly leads to shrunken values being produced inside of the testcase as well. An extensive description of this approach can be found in ["Test-Case Reduction via Test-Case Generation:
+Insights From the Hypothesis Reducer"](https://doi.org/10.4230/LIPIcs.ECOOP.2020.13) by MacIver & Donaldson, the original authors of Hypothesis - an absolute fantastic and easy to follow paper.
 
 This kind of internal test-case reduction, as the authors call it, has other advantages as well: because the choice sequence is completely decoupled from actually creating any objects, a number of different
 ways to judge how well an example does open up. For instance, Hypothesis supports an arbitrary scoring function to be used during execution, which Hypothesis will then try to maximize. This can be extremely useful
@@ -285,7 +292,9 @@ for guiding Hypothesis towards examples that are more likely to be a good counte
 In a sense, this combats the "curse of dimensionality" often seen in machine learning too, since "find the minimal counterexample reproducing a failure" really is an optimization problem in disguise.
 It's not difficult to imagine that this choice sequence could even be used as input to an LLM, asking it to produce similar sequences that produce failure cases as well. One downside of course is that
 the choice sequences are coupled with the given testcase that generated them, resulting in really bad transfer of any learned property between testcases.
-Neither of these optimization approaches are per se possible with the forced tree structure of QuickCheck and Hedgehog, since there is no way to transmit this additional information to the testing framework.
+Neither of these optimization approaches are per se possible with the forced tree structure of QuickCheck and Hedgehog, since there is no way to transmit this additional information to the testing framework,
+let alone have it act on that information to steer shrinking. The state is implicit after all, not explicit.
+
 However, it should in principle be possible to modify the expected signature of the frameworks to return a more complicated structure including such a targeting score as well as the result of the predicate to
 inform decisions about which branches are more interesting for future expansion. Whether that information can be integrated into the respective shrinking processes is another matter though - I suspect it should
 be easier to do in QuickCheck than in Hedgehog, since in Hedgehog the shrinking trees (and their order!) is already predetermined before the test starts.
