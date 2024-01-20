@@ -159,7 +159,7 @@ want to generate, but by combining objects _representing_ those generators and t
 In the end, an `Int32Generator` represents a generator for a tree of values, the root of which is the initially generated value and the children of each node
 being the shrunk values.
 
-For example, instead of having a type `EvenInt32` for generating & shrinking even 32-bit integers (which themselves are of type `EvenInt32`!), you can simply take an existing `seven` predicate and
+For example, instead of having a type `EvenInt32` for generating & shrinking even 32-bit integers (which themselves are of type `EvenInt32`!), you can simply take an existing `iseven` predicate and
 combine that with an `Int32Generator` to produce a new generator that also generates `Int32`:
 
 ```julia
@@ -218,7 +218,8 @@ julia> count(iseven, examples)
 ```
 
 This makes the approach suitable for strongly typed languages without type classes! If you want to play around with this in Julia, check out [PropCheck.jl](https://seelengrab.github.io/PropCheck.jl/stable/),
-my Hedgehog inspired port of this approach to Julia.
+my Hedgehog inspired port of this approach to Julia. Note that I'm working on a replacement for PropCheck.jl, so while it's good to get your feet wet with property based testing, better things
+are on the horizon ;)
 
 ### Downsides of combinations
 
