@@ -18,6 +18,7 @@ students in the form of a tutoring position. The views, opinions and all other s
 What I decide to share here is generally licensed as [CC-BY-SA 4.0](http://creativecommons.org/licenses/by-sa/4.0/), unless noted otherwise.
 That includes both prose and code, should any be shared. Do note that individual snippets may not run on their own and may require external
 code, which may be licensed differently (I usually use MIT for my open source packages though).
+My github projects are licensed on a project-by-project basis - please check the respective repositories for licensing information.
 
 You can find me on other channels as well:
 
