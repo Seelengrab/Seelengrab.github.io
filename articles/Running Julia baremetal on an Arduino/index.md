@@ -9,8 +9,7 @@
 
 I don't really have much experience with microcontrollers. I've played around with some arduinos before
 and the main entry point for my home network is a Raspberry Pi, but that's about it for recent experience.
-I did take a single course on microcontrollers a few years back, and I was hilariously bad at it, barely
-reaching a passing grade. Nonetheless, I am fascinated by them - they're low powered devices
+I did take a single course on microcontrollers a few years back though. I am fascinated by them - they're low powered devices
 that we can program to make almost anything happen, as long as we're a little careful with ressource
 management and don't shoot ourselves in the foot.
 
