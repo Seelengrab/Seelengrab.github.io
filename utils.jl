@@ -33,10 +33,6 @@ function hfun_custom_taglist()
 
     rpaths = globvar("fd_tag_pages")[tag]
     sorter(p) = pagevar(p, "rss_pubdate")
-    filter!(rpaths) do p
-        date = pagevar(p, "rss_pubdate")
-        date != Date(1,1,1)
-    end
     sort!(rpaths, by=sorter, rev=true)
 
     for rpath in rpaths
@@ -45,7 +41,9 @@ function hfun_custom_taglist()
             title = "/$rpath/"
         end
         url = Franklin.htmlesc(get_url(rpath))
-        write(c, "<li><a href='$url'>$title</a></li>")
+        # unpublished articles should be skipped
+        date = @something publishDate(dirname(rpath)) continue
+        write(c, "<li><a href='$url'>$date - $title</a></li>")
     end
     write(c, "</ul>")
     return String(take!(c))
