@@ -188,6 +188,7 @@ time {
 code {
     font-family: monospace;
     border-radius: 3px;
+    color: var(--text-colour);
 }
 
 pre > code {
@@ -327,12 +328,32 @@ footer {
     border-top: 1px solid lightgrey;
     padding-top: 2em;
     margin-bottom: 4em;
+    display: grid;
+    grid-template-rows: 1fr 1fr;
+    grid-template-columns: 1fr 1fr;
 }
 
 .franklin-content footer > a {
     color: var(--link-text);
 }
 
+footer > #meta {
+    grid-row: 1;
+    grid-column: 1 / span 2;
+}
+
+footer > #love {
+    grid-row: 2;
+    grid-column: 1 / span 2;
+}
+
 .heart {
     color: var(--heart-color);
+}
+
+img.rss-icon {
+    max-width: 1em;
+    max-height: 1em;
+    overflow: visible;
+    padding: -5px;
 }

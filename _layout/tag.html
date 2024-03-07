@@ -1,7 +1,19 @@
-{{insert head.html}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/css/franklin.css">
+  <link rel="stylesheet" href="/css/basic.css">
+  <link rel="stylesheet" href="/css/style.css">
+  <link rel="icon" href="/assets/favicon.png">
+  <title>Tag: {{fill fd_tag}}</title>
+</head>
+<body>
+  {{insert header.html}}
   <div class="franklin-content">
     <h1>Tag: {{fill fd_tag}}</h1>
-    {{taglist}}
+    {{custom_taglist}}
     {{insert page_foot.html}}
   </div>
 </body>

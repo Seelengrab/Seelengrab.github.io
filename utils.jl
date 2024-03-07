@@ -18,45 +18,76 @@ function hfun_pagetags()
     io = IOBuffer()
     write(io, """<ul class="franklin-content" id="tags">\n""")
     for tag in tags
-        write(io, """<li><a href='/tag/$tag/'>$tag</a></li>""")
+        write(io, """<li><a href='/tag/$(Franklin.refstring(tag))/'>$tag</a></li>""")
     end
     write(io, "</ul>")
 
     return String(take!(io))
+end
+
+function hfun_custom_taglist()
+    tag = locvar(:fd_tag)::String
+
+    c = IOBuffer()
+    write(c, "<ul>")
+
+    rpaths = globvar("fd_tag_pages")[tag]
+    sorter(p) = pagevar(p, "rss_pubdate")
+    filter!(rpaths) do p
+        date = pagevar(p, "rss_pubdate")
+        date != Date(1,1,1)
+    end
+    sort!(rpaths, by=sorter, rev=true)
+
+    for rpath in rpaths
+        title = pagevar(rpath, "title")
+        if isnothing(title)
+            title = "/$rpath/"
+        end
+        url = Franklin.htmlesc(get_url(rpath))
+        write(c, "<li><a href='$url'>$title</a></li>")
+    end
+    write(c, "</ul>")
+    return String(take!(c))
 end
 
 function articles()
     arts = map(d -> joinpath("./articles", d), readdir("./articles"))
     filter!(arts) do d
         isfile(joinpath(d, "index.md")) &&
-        isfile(joinpath(d, ".published"))
+        !isnothing(publishDate(d))
     end
     arts
 end
 
-publishDate(article::String) = Date(first(eachline(joinpath(article, ".published"))))
-lastModification(article::String) = Date(first(eachline(joinpath(article, ".published"))))
+function publishDate(article::String)
+    data = read(joinpath(article, "index.md"), String)
+    date_tup = @something match(r"Date\((\d+),\s*(\d+),\s*(\d+)\)", data) (return nothing)
+    y,m,d = parse.(Int, date_tup)
+    Some(Date(y,m,d))
+end
 
 function hfun_allarticles()
     arts = articles()
     isempty(arts) && return "No articles written"
-    sort!(arts; by=publishDate, rev=true)
+    sort!(arts; by=publishDateLess, rev=true)
     io = IOBuffer()
     write(io, "<ul>")
     for art in arts
         article = basename(art)
-        date = publishDate(art)
+        date = @something publishDate(art) "Not Published"
         write(io, """<li><a href='./$article/'>$date - $article</a></li>\n""")
     end
     write(io, "</ul>")
     return String(take!(io))
 end
 
+publishDateLess(d) = something(publishDate(d), Date(9999,12,31))
+
 function hfun_recentarticles()
     arts = articles()
     isempty(arts) && return "No articles written"
-    partialsort!(arts, 1:min(5,lastindex(arts)); by=publishDate, rev=true)
-    @info arts
+    partialsort!(arts, 1:min(5,lastindex(arts)); by=publishDateLess, rev=true)
     io = IOBuffer()
     write(io, """<ul class="recent">""")
     for art in @view(arts[1:min(5, end)])
