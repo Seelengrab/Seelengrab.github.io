@@ -1,5 +1,7 @@
 @def title = "The Properties of QuickCheck, Hedgehog and Hypothesis"
 @def tags = ["PBT", "QuickCheck", "Hedgehog", "Hypothesis", "testing", "julia"]
+@def rss_description = "An overview & comparison of the approaches taken by the property based testing frameworks QuickCheck, Hedgehog and Hypothesis."
+@def rss_pubdate = Date(2024,01,22)
 
 # The Properties of QuickCheck, Hedgehog and Hypothesis
 

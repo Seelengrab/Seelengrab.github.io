@@ -1,5 +1,7 @@
 @def title = "Running Julia baremetal on an Arduino"
 @def tags = ["julia", "c", "arduino"]
+@def rss_description = "A writeup about how I got Julia code running baremetal on an Arduino Ethernet R3, which features an ATmega328p, LLVM-IR as well as AVR assembly."
+@def rss_pubdate = Date(2022, 5, 23)
 
 # Running Julia baremetal on an Arduino
 

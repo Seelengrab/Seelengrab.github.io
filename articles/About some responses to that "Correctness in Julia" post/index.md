@@ -1,5 +1,7 @@
 @def title = "About some responses to that \"Correctness in julia\" post"
 @def tags = ["julia", "correctness", "interfaces", "formal_methods"]
+@def rss_description = "A short commentary on the responses to \"Why I no longer recommend Julia\" Post by Yuri Vishnevsky"
+@def rss_pubdate = Date(2022,05,17)
 
 # About some responses to that "Correctness in julia" post
 

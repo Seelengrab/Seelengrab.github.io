@@ -1,5 +1,7 @@
 @def title = "Julia Abstractions for Arduino registers"
 @def tags = ["julia", "c", "arduino", "abstraction", "µC"]
+@def rss_description = "A followup post about building zero-cost abstractions for Julia on microcontrollers using a few new support packages."
+@def rss_pubdate = Date(2022,11,08)
 
 # Julia Abstractions for Arduino registers
 
