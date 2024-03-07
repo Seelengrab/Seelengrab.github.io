@@ -16,8 +16,8 @@
     --note-title-bg: #72c6fa;
     --note-border: #82b1d9;
 
-    --tip-bg: #beffb8;
-    --tip-title-bg: #65d14f;
+    --tip-bg: #e8f4ff;
+    --tip-title-bg: #4fa3d7;
     --tip-border: #77b54c;
 
     --generic-bg: #f0f0f0;
@@ -26,13 +26,14 @@
 
     --main-bg: lightgrey;
     --main-border: lightgrey;
-    --code-bg: #c7dda53b;
+    --code-bg: #f1f1f1f1;
+    --block-background: var(--code-bg);
     --code-scroll-bg: #dae7d79c;
-    --text-colour: #141414;
+    --text-colour: #3b3b3b;
     --link-text: #67a20d;
     --link-hover: darkgrey;
     --link-active: lightgrey;
-    --quote: lightgrey;
+    --quote: #d0f7b92b;
     --caret: #73b60d;
 }
 
@@ -72,7 +73,7 @@ header {
 	height: auto;
 	width: auto;
     text-decoration-line: none;
-    color: #a6a2a0;
+    color: #777573;
 }
 
 .blog-name:hover {
@@ -113,6 +114,7 @@ nav li a {
 
 .franklin-content blockquote {
     border-left: 7px solid var(--caret);
+    background-color: var(--quote);
 }
 
 blockquote > p {
@@ -189,6 +191,7 @@ code {
     font-family: monospace;
     border-radius: 3px;
     color: var(--text-colour);
+    background-color: var(--code-bg);
 }
 
 pre > code {
