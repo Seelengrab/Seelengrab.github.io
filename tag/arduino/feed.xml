@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<rss version="2.0"
+  xmlns:content="http://purl.org/rss/1.0/modules/content/"
+  xmlns:dc="http://purl.org/dc/elements/1.1/"
+  xmlns:media="http://search.yahoo.com/mrss/"
+  xmlns:atom="http://www.w3.org/2005/Atom"
+  xmlns:georss="http://www.georss.org/georss">
+
+  <channel>
+    <title>
+      <![CDATA[  Voyage  ]]>
+    </title>
+    <link> https://seelengrab.github.io/ </link>
+    <description>
+      <![CDATA[  A place to put thoughts; who knows where they&#39;ll lead?  ]]>
+    </description>
+    <atom:link
+      href="https://seelengrab.github.io/feed.xml"
+      rel="self"
+      type="application/rss+xml" />
+
+
+<item>
+  <title>
+    <![CDATA[  Julia Abstractions for Arduino registers  ]]>
+  </title>
+  <link> https://seelengrab.github.io/articles/Julia Abstractions for Arduino registers/index.html </link>
+  <guid> https://seelengrab.github.io/articles/Julia Abstractions for Arduino registers/index.html </guid>
+  <description>
+    <![CDATA[  A followup post about building zero-cost abstractions for Julia on microcontrollers using a few new support packages.  ]]>
+  </description>  
+    
+  <pubDate>Tue, 08 Nov 2022 00:00:00 +0000</pubDate>  
+  
+  
+  <atom:author>
+    <atom:name>Sukera</atom:name>
+  </atom:author>
+        
+</item>
+
+<item>
+  <title>
+    <![CDATA[  Running Julia baremetal on an Arduino  ]]>
+  </title>
+  <link> https://seelengrab.github.io/articles/Running Julia baremetal on an Arduino/index.html </link>
+  <guid> https://seelengrab.github.io/articles/Running Julia baremetal on an Arduino/index.html </guid>
+  <description>
+    <![CDATA[  A writeup about how I got Julia code running baremetal on an Arduino Ethernet R3, which features an ATmega328p, LLVM-IR as well as AVR assembly.  ]]>
+  </description>  
+    
+  <pubDate>Mon, 23 May 2022 00:00:00 +0000</pubDate>  
+  
+  
+  <atom:author>
+    <atom:name>Sukera</atom:name>
+  </atom:author>
+        
+</item>
+</channel></rss>

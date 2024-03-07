@@ -1,4 +1,4 @@
-Sitemap: seelengrab.github.io/sitemap.xml
+Sitemap: https://seelengrab.github.io/sitemap.xml
 
 User-agent: *
 Disallow:
