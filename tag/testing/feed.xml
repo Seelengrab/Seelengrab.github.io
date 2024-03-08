@@ -23,6 +23,25 @@
 
 <item>
   <title>
+    <![CDATA[  Error Shrinking: The Good, the Bad and the Ugly  ]]>
+  </title>
+  <link> https://seelengrab.github.io/articles/Error Shrinking: The Good, the Bad and the Ugly/index.html </link>
+  <guid> https://seelengrab.github.io/articles/Error Shrinking: The Good, the Bad and the Ugly/index.html </guid>
+  <description>
+    <![CDATA[  We&#39;re looking at how errors and their messages in Julia behave &#40;or don&#39;t&#33;&#41; when they interact with property based testing using Supposition.jl.  ]]>
+  </description>  
+    
+  <pubDate>Fri, 08 Mar 2024 00:00:00 +0000</pubDate>  
+  
+  
+  <atom:author>
+    <atom:name>Sukera</atom:name>
+  </atom:author>
+        
+</item>
+
+<item>
+  <title>
     <![CDATA[  The Properties of QuickCheck, Hedgehog and Hypothesis  ]]>
   </title>
   <link> https://seelengrab.github.io/articles/The properties of QuickCheck, Hedgehog and Hypothesis/index.html </link>
