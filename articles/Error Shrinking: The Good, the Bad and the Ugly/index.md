@@ -1,6 +1,7 @@
 @def title = "Error Shrinking: The Good, the Bad and the Ugly"
 @def tags = ["julia", "testing", "errors", "PBT", "Supposition.jl"]
-<!--@def rss_description = "We're looking at how errors and their messages in Julia behave (or don't!) when they interact with property based testing using Supposition.jl."-->
+@def rss_description = "We're looking at how errors and their messages in Julia behave (or don't!) when they interact with property based testing using Supposition.jl."
+@def rss_pubdate = Date(2024,3,8)
 
 # Error Shrinking: The Good, the Bad and the Ugly
 
