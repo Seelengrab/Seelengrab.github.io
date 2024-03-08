@@ -8,24 +8,6 @@
     <priority>0.5</priority>
 </url>
 <url>
-    <loc>https://seelengrab.github.io/articles/Running%20Julia%20baremetal%20on%20an%20Arduino/index.html</loc>
-    <lastmod>2024-03-08</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-</url>
-<url>
-    <loc>https://seelengrab.github.io/articles/index.html</loc>
-    <lastmod>2024-03-08</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-</url>
-<url>
-    <loc>https://seelengrab.github.io/articles/The%20properties%20of%20QuickCheck%2C%20Hedgehog%20and%20Hypothesis/index.html</loc>
-    <lastmod>2024-03-08</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.5</priority>
-</url>
-<url>
     <loc>https://seelengrab.github.io/index.html</loc>
     <lastmod>2024-03-08</lastmod>
     <changefreq>monthly</changefreq>
@@ -44,13 +26,37 @@
     <priority>0.5</priority>
 </url>
 <url>
-    <loc>https://seelengrab.github.io/tag/index.html</loc>
+    <loc>https://seelengrab.github.io/articles/The%20properties%20of%20QuickCheck%2C%20Hedgehog%20and%20Hypothesis/index.html</loc>
     <lastmod>2024-03-08</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>
 </url>
 <url>
     <loc>https://seelengrab.github.io/articles/Julia%20Abstractions%20for%20Arduino%20registers/index.html</loc>
+    <lastmod>2024-03-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
+    <loc>https://seelengrab.github.io/tag/index.html</loc>
+    <lastmod>2024-03-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
+    <loc>https://seelengrab.github.io/articles/Running%20Julia%20baremetal%20on%20an%20Arduino/index.html</loc>
+    <lastmod>2024-03-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
+    <loc>https://seelengrab.github.io/articles/index.html</loc>
+    <lastmod>2024-03-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
+    <loc>https://seelengrab.github.io/articles/CSS_Testpage/index.html</loc>
     <lastmod>2024-03-08</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.5</priority>

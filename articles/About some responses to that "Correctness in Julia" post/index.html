@@ -1,4 +1,4 @@
-<!doctype html> <html lang=en > <meta charset=UTF-8 > <meta name=viewport  content="width=device-width, initial-scale=1"> <link rel=stylesheet  href="/libs/highlight/github.min.css"> <link rel=stylesheet  href="/css/franklin.css"> <link rel=stylesheet  href="/css/basic.css"> <link rel=stylesheet  href="/css/style.css"> <link rel=icon  href="/assets/favicon.png"> <title>About some responses to that "Correctness in julia" post</title> <header> <a href="/" class=blog-name ><span>Voyage:</span><span id=title >About some responses to that "Correctness in julia" post</span></a> <nav> <ul> <li><a href="/articles/">Articles</a> <!--<li><a href="/tag/">Tags</a>--> <li><a href="/about/">About</a> </ul> <img src="/assets/hamburger.svg" id=menu-icon > </nav> </header> <ul class=franklin-content  id=tags > <li><a href='/tag/julia/'>julia</a><li><a href='/tag/correctness/'>correctness</a><li><a href='/tag/interfaces/'>interfaces</a><li><a href='/tag/formal_methods/'>formal_methods</a></ul> <div class=franklin-content ><h1 id=about_some_responses_to_that_correctness_in_julia_post ><a href="#about_some_responses_to_that_correctness_in_julia_post" class=header-anchor >About some responses to that &quot;Correctness in julia&quot; post</a></h1> <div class=franklin-toc ><ol><li><a href="#full_disclosure">Full disclosure</a><li><a href="#interfaces">Interfaces</a><ol><li><a href="#checkbounds"><code>checkbounds</code></a><li><a href="#the_meat_of_the_criticism">The meat of the criticism</a></ol><li><a href="#fixing_the_most_common_issues">Fixing the most common issues</a><li><a href="#performance_correctness">Performance &amp; Correctness</a><li><a href="#additional_tidbits">Additional tidbits</a></ol></div> <h2 id=full_disclosure ><a href="#full_disclosure" class=header-anchor >Full disclosure</a></h2> <p>I&#39;ve been using julia for about 5 years now, since right around 0.5 transitioned to 0.6. I&#39;m very active on Discourse and Slack, helping to answer beginner &amp; advanced user questions - sometimes in greater detail than anyone asked for. I frequent the issue tracker and try to participate in discussions surrounding the language and where it can do better, as well as the direction I personally would like to see julia go in the future. I do not, however, write julia as my dayjob - I don&#39;t have financial interest in making this language better.</p> <div class=imgcenter ><img src="./neat.jpg" alt="" /></div> <p>I also &#40;in part&#41; agree with the general sentiment expressed around <a href="https://yuri.is/not-julia/">the article recently written by Yuri Vishnevsky</a>, that julia code in general feels undertested &#40;though not in the way most commenters seem to think&#41;. This article is <em>not</em> a &quot;rebuttal&quot; of the issues presented and felt there - those are 100&#37; valid. If I were to run into them, I would feel &#40;and have felt, in similar situations&#41; just as defeated, especially when running into them as often as Yuri seems to have.</p> <p>Rather, I want this article to be about some of the responses and arguments people in various forums chose to give when the article was published. They broadly fall into a few categories, which I&#39;ll get into below, explain the issue in the context of julia and why the argument does &#40;or does not&#33;&#41; apply and can make julia better as a language.</p> <h2 id=interfaces ><a href="#interfaces" class=header-anchor >Interfaces</a></h2> <p>Let&#39;s start with the elephant in the room: Interfaces. As a first example, we&#39;ll use the same one Yuri used, in regards to <code>@inbounds</code> on types that subtype <code>AbstractArray</code>.</p> <pre><code class="julia hljs"><span class=hljs-keyword >function</span> sum(A::<span class=hljs-built_in >AbstractArray</span>)
+<!doctype html> <html lang=en > <meta charset=UTF-8 > <meta name=viewport  content="width=device-width, initial-scale=1"> <link rel=stylesheet  href="/libs/highlight/github.min.css"> <link rel=stylesheet  href="/css/franklin.css"> <link rel=stylesheet  href="/css/basic.css"> <link rel=stylesheet  href="/css/style.css"> <link rel=icon  href="/assets/favicon.png"> <title>About some responses to that "Correctness in julia" post</title> <header> <a href="/" class=blog-name ><span>Voyage:</span><span id=title >About some responses to that "Correctness in julia" post</span></a> <nav> <ul> <li><button class=theme-toggle > <div class=theme-sun >☀️</div> <div class=theme-moon >🌖</div> </button> <li><a href="/articles/">Articles</a> <!--<li><a href="/tag/">Tags</a>--> <li><a href="/about/">About</a> </ul> <img src="/assets/hamburger.svg" id=menu-icon > </nav> </header> <ul class=franklin-content  id=tags > <li><a href='/tag/julia/'>julia</a><li><a href='/tag/correctness/'>correctness</a><li><a href='/tag/interfaces/'>interfaces</a><li><a href='/tag/formal_methods/'>formal_methods</a></ul> <div class=franklin-content ><h1 id=about_some_responses_to_that_correctness_in_julia_post ><a href="#about_some_responses_to_that_correctness_in_julia_post" class=header-anchor >About some responses to that &quot;Correctness in julia&quot; post</a></h1> <div class=franklin-toc ><ol><li><a href="#full_disclosure">Full disclosure</a><li><a href="#interfaces">Interfaces</a><ol><li><a href="#checkbounds"><code>checkbounds</code></a><li><a href="#the_meat_of_the_criticism">The meat of the criticism</a></ol><li><a href="#fixing_the_most_common_issues">Fixing the most common issues</a><li><a href="#performance_correctness">Performance &amp; Correctness</a><li><a href="#additional_tidbits">Additional tidbits</a></ol></div> <h2 id=full_disclosure ><a href="#full_disclosure" class=header-anchor >Full disclosure</a></h2> <p>I&#39;ve been using julia for about 5 years now, since right around 0.5 transitioned to 0.6. I&#39;m very active on Discourse and Slack, helping to answer beginner &amp; advanced user questions - sometimes in greater detail than anyone asked for. I frequent the issue tracker and try to participate in discussions surrounding the language and where it can do better, as well as the direction I personally would like to see julia go in the future. I do not, however, write julia as my dayjob - I don&#39;t have financial interest in making this language better.</p> <div class=imgcenter ><img src="./neat.jpg" alt="" /></div> <p>I also &#40;in part&#41; agree with the general sentiment expressed around <a href="https://yuri.is/not-julia/">the article recently written by Yuri Vishnevsky</a>, that julia code in general feels undertested &#40;though not in the way most commenters seem to think&#41;. This article is <em>not</em> a &quot;rebuttal&quot; of the issues presented and felt there - those are 100&#37; valid. If I were to run into them, I would feel &#40;and have felt, in similar situations&#41; just as defeated, especially when running into them as often as Yuri seems to have.</p> <p>Rather, I want this article to be about some of the responses and arguments people in various forums chose to give when the article was published. They broadly fall into a few categories, which I&#39;ll get into below, explain the issue in the context of julia and why the argument does &#40;or does not&#33;&#41; apply and can make julia better as a language.</p> <h2 id=interfaces ><a href="#interfaces" class=header-anchor >Interfaces</a></h2> <p>Let&#39;s start with the elephant in the room: Interfaces. As a first example, we&#39;ll use the same one Yuri used, in regards to <code>@inbounds</code> on types that subtype <code>AbstractArray</code>.</p> <pre><code class="julia hljs"><span class=hljs-keyword >function</span> sum(A::<span class=hljs-built_in >AbstractArray</span>)
     r = zero(eltype(A))
     <span class=hljs-keyword >for</span> i <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:length(A)
         <span class=hljs-meta >@inbounds</span> r += A[i]
@@ -48,3 +48,46 @@ end</code></pre> <p>This is not fundamentally different from checking indices in
     
         
 <script>hljs.highlightAll();hljs.configure({tabReplace: '    '});</script>
+
+    
+    
+<script>
+const setTheme = function (newTheme) {
+  var prefersDarkScheme = window.matchMedia("(prefers-color-scheme: dark)");
+  var wasNull = newTheme === null;
+  if (newTheme === null) {
+    if (prefersDarkScheme.matches) {
+      newTheme = "dark";
+    } else {
+      newTheme = "light";
+    };
+  };
+  if (newTheme == "dark") {
+    document.body.classList.toggle("light-theme", false);
+    document.body.classList.toggle("dark-theme", true);
+    document.querySelector(".theme-moon").style.display = "inline-block";
+    document.querySelector(".theme-sun").style.display = "none";
+  } else {
+    document.body.classList.toggle("dark-theme", false);
+    document.body.classList.toggle("light-theme", true);
+    document.querySelector(".theme-sun").style.display = "inline-block";
+    document.querySelector(".theme-moon").style.display = "none";
+  }
+  if (!wasNull) {
+    localStorage.setItem("theme", newTheme);
+  }
+};
+var currentTheme = localStorage.getItem("theme");
+console.log(currentTheme);
+setTheme(currentTheme);
+
+var btn = document.querySelector(".theme-toggle");
+btn.addEventListener("click", function () {
+  var theme = document.body.classList.contains("light-theme")
+    ? "dark"
+    : "light";
+  setTheme(theme);
+});
+var prefersDarkScheme = window.matchMedia("(prefers-color-scheme: dark)");
+prefersDarkScheme.addEventListener("change", function() {setTheme(localStorage.getItem("theme"))});
+</script>
