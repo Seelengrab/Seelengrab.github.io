@@ -47,19 +47,19 @@ end
 ```
 
 !!! danger "Danger `code`"
-    This is a Danger
+    This is a Danger `code`
 
 !!! warning "Warning `code`"
     This is a warning
 
 !!! note "Note `code`"
-    This is a note
+    This is a note `code`
 
 !!! tip "Tip `code`"
-    This is a tip
+    This is a tip `code`
 
 !!! generic "Generic `code`"
-    This is a generic
+    This is a generic `code`
 
 [^note]: This is a footnote!
 [^note2]: This is another footnote!
