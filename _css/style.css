@@ -447,7 +447,15 @@ pre > code {
 }
 
 .hljs {
-	line-height: 1.45em;
+    line-height: 1.45em;
+}
+
+.hljs-addition {
+    background: #00ff0045;
+}
+
+.hljs-deletion {
+    background: #ff000045;
 }
 
 pre > code::-webkit-scrollbar {

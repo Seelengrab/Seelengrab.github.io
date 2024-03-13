@@ -1,5 +1,6 @@
 __site/
 .DS_Store
 node_modules/
+package.json
 package-lock.json
 Manifest.toml
