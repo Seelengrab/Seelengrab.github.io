@@ -7,7 +7,7 @@
 
 Errors! Love 'em or hate 'em, one thing is undeniable: we all encounter them, sooner or later.
 I've been thinking about errors quite a bit recently, in part because of [a recent post](https://public.tecosaur.net/JuliaErrors.html)
-by `@tecosaur` about improving the error experience in Julia:
+by [`@tecosaur`](https://github.com/tecosaur) about improving the error experience in Julia:
 
 > Julia’s error messages currently effectively communicate that an error has occurred, and the general nature of it, but fail to do much beyond that.
 
@@ -247,6 +247,12 @@ This is the ugly part of errors; even when you have taken a bit more care to des
 that all of your tooling needs support for to take proper advantage of. "Throw and forget" doesn't really work all that well when you want to be smart
 about actually debugging them.
 
+!!! note "Supposition.jl improvements"
+    With [v0.2.0](https://github.com/Seelengrab/Supposition.jl/releases/tag/v0.2.0), Supposition.jl can now shrink `ArgumentError` well too, correctly
+    finding `6.283185307179586`. This is a bit brittle though and can get worse
+    again if the error message string contains lots of unrelated data too, so
+    using a better error is still important.
+  
 ## Conclusion
 
 Alright, this about sums it up; there are good & simple things you can do with errors in Julia that help users to debug their code, but even those
