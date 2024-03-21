@@ -451,11 +451,11 @@ pre > code {
 }
 
 .hljs-addition {
-    background: #00ff0045;
+    background: rgba(0,255,0,27%);
 }
 
 .hljs-deletion {
-    background: #ff000045;
+    background: rgba(255,0,0,27%);
 }
 
 pre > code::-webkit-scrollbar {
