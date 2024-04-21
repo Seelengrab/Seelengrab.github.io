@@ -1,6 +1,7 @@
 @def title = "Antithesis is not enough"
 @def tags = ["PBT", "Determinism", "Antithesis", "Supposition.jl", "testing", "julia"]
 @def rss_description = "A look at determinism and why it's required, but not sufficient for good testing"
+@def rss_pubdate = Date(2024,4,21)
 
 # Antithesis is not enough
 
