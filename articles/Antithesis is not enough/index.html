@@ -1,0 +1,157 @@
+<!doctype html> <html lang=en > <meta charset=UTF-8 > <meta name=viewport  content="width=device-width, initial-scale=1"> <link rel=stylesheet  href="/libs/highlight/github.min.css"> <link rel=stylesheet  href="/css/franklin.css"> <link rel=stylesheet  href="/css/basic.css"> <link rel=stylesheet  href="/css/style.css"> <link rel=icon  href="/assets/favicon.png"> <title>Antithesis is not enough</title> <header> <a href="/" class=blog-name ><span>Voyage:</span><span id=title >Antithesis is not enough</span></a> <nav> <ul> <li><button class=theme-toggle > <div class=theme-sun >☀️</div> <div class=theme-moon >🌖</div> </button> <li><a href="/articles/">Articles</a> <!--<li><a href="/tag/">Tags</a>--> <li><a href="/about/">About</a> </ul> <img src="/assets/hamburger.svg" id=menu-icon > </nav> </header> <ul class=franklin-content  id=tags > <li><a href='/tag/pbt/'>PBT</a><li><a href='/tag/determinism/'>Determinism</a><li><a href='/tag/antithesis/'>Antithesis</a><li><a href='/tag/suppositionjl/'>Supposition.jl</a><li><a href='/tag/testing/'>testing</a><li><a href='/tag/julia/'>julia</a></ul> <div class=franklin-content ><h1 id=antithesis_is_not_enough ><a href="#antithesis_is_not_enough" class=header-anchor >Antithesis is not enough</a></h1> <p>Over the past few weeks, <a href="https://antithesis.com">Antithesis</a> has been all the rage in the tech world, especially on HackerNews. The proposition &#40;though not the execution&#41; is simple: A deterministic hypervisor to aid in debugging of so-called Heisenbugs, i.e. bugs that happen due to nondeterministic effects of OS scheduling, I/O times etc. In this article, we&#39;re going to take a short look at what this enables in terms of debugging, and why the properties of such a deterministic hypervisor alone are not enough.</p> <p>That being said, I haven&#39;t used Antithesis, so this article may be inaccurate in some places. Most of what I could gather about how it works is from their <a href="https://antithesis.com/blog/">blog posts</a> and marketing material &#40;which is hopefully accurate&#41; and comparing that to my experience from writing <a href="https://github.com/Seelengrab/Supposition.jl">Supposition.jl</a>, a property based testing framework for Julia.</p> <h2 id=determinism_in_testing ><a href="#determinism_in_testing" class=header-anchor >Determinism in Testing</a></h2> <p>Before we get to concrete difficulties, let&#39;s first take a small detour about determinism in testing, with examples using Supposition.jl. The example I&#39;m using in this section is based on the talk <a href="https://www.youtube.com/watch?v&#61;ms8zKpS_dZE">Property-testing async code in Rust to build reliable distributed systems</a> by Antonio Scandurra. If you&#39;re already familiar with Antithesis and/or deterministic property based testing, you can probably skip this bit. If you&#39;re interested in the full example code I&#39;m using here, see <a href="https://gist.github.com/Seelengrab/f0eddb28f139644ec71a9a1e8c4b42cd">this gist</a>.</p> <p>So, why is determinism for testing a big deal? Simply put, without determinism you have to be lucky while debugging rare failures. EXTREMELY lucky. Not only does someone/some CI job have to hit your specific bug, but without determinism you&#39;ll often have a hard time reproducing the failure, slowing down a potential fix immensely. Let&#39;s look at an example:</p> <pre><code class="julia hljs"><span class=hljs-keyword >function</span> run_test(exe::Executor)
+    t = <span class=hljs-meta >@spawn</span> exe <span class=hljs-keyword >begin</span>
+        <span class=hljs-meta >@debug</span> <span class=hljs-string >&quot;Starting test&quot;</span>
+        l = <span class=hljs-built_in >ReentrantLock</span>()
+        data = <span class=hljs-built_in >Ref</span>(<span class=hljs-number >0</span>)
+
+        future1 = <span class=hljs-meta >@spawn</span> exe <span class=hljs-keyword >begin</span>
+            <span class=hljs-meta >@debug</span> <span class=hljs-string >&quot;Future 1 scheduled&quot;</span>
+            <span class=hljs-meta >@lock</span> l <span class=hljs-keyword >begin</span>
+                <span class=hljs-keyword >if</span> data[] == <span class=hljs-number >0</span>
+                    data[] += <span class=hljs-number >1</span>
+                <span class=hljs-keyword >end</span>
+            <span class=hljs-keyword >end</span>
+            <span class=hljs-meta >@debug</span> <span class=hljs-string >&quot;Done with 1!&quot;</span>
+        <span class=hljs-keyword >end</span>
+
+        future2 = <span class=hljs-meta >@spawn</span> exe <span class=hljs-keyword >begin</span>
+            <span class=hljs-meta >@debug</span> <span class=hljs-string >&quot;Future 2 scheduled&quot;</span>
+            <span class=hljs-meta >@lock</span> l <span class=hljs-keyword >begin</span>
+                <span class=hljs-keyword >if</span> data[] == <span class=hljs-number >1</span>
+                    data[] += <span class=hljs-number >1</span>
+                <span class=hljs-keyword >end</span>
+            <span class=hljs-keyword >end</span>
+            <span class=hljs-meta >@debug</span> <span class=hljs-string >&quot;Done with 2!&quot;</span>
+        <span class=hljs-keyword >end</span>
+
+        wait(future1)
+        wait(future2)
+        <span class=hljs-meta >@debug</span> <span class=hljs-string >&quot;Done with subtasks!&quot;</span>
+        <span class=hljs-meta >@lock</span> l <span class=hljs-keyword >begin</span>
+            data[]
+        <span class=hljs-keyword >end</span>
+    <span class=hljs-keyword >end</span>
+    res = <span class=hljs-meta >@something</span> block_on(exe, t) <span class=hljs-built_in >Some</span>(<span class=hljs-literal >nothing</span>)
+    res == <span class=hljs-number >2</span>
+<span class=hljs-keyword >end</span></code></pre> <p>This is a very small function making use of the asynchronous runtime used in Julia, with some small abstractions sprinkled on top to allow for custom Rust-like executors to be passed in. The task is to spawn two futures and increment a shared mutable object that&#39;s being protected by a lock if some condition is fulfilled. The first future only increments if the data is zero, while the second only increments if the data is one. Finally, we check that the ultimate result is <code>2</code>, i.e. we expect <code>future1</code> to execute first, followed by <code>future2</code>.</p> <p>This code has a race condition - if <code>future2</code> executes before <code>future1</code> does, we only end up with <code>data</code> holding <code>1</code> &#40;incremented by <code>future1</code>&#41;. There&#39;s two ways to schedule the two futures, so we&#39;d expect the test to fail 50&#37; of the time. However, that&#39;s not what happens - if we pass in a <code>BaseExecutor</code> &#40;a Rust-like executor that just falls back on the default Julia runtime&#41;, we get very consistent results:</p> <pre><code class="julia-repl hljs"><span class="hljs-meta prompt_">julia&gt;</span><span class=language-julia > count( run_test(BaseExecutor()) <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >1_000</span> )
+</span>994</code></pre> <p>Out of 1000 executions, 994 returned <code>true</code> - i.e., almost all executions just happened to schedule the two futures in the &quot;happy&quot; order, avoiding the race condition. <code>future1</code> executed first, incrementing the shared state to <code>1</code>, followed by <code>future2</code>, incrementing the shared state to <code>2</code>. Only a tiny fraction of executions managed to hit the race condition&#33; What&#39;s worse is that running the test locally is also just as unlikely to produce that failure:</p> <pre><code class="julia hljs">julia&gt; run_test(BaseExecutor())
+<span class=hljs-literal >true</span>
+
+julia&gt; run_test(BaseExecutor())
+<span class=hljs-literal >true</span>
+
+julia&gt; run_test(BaseExecutor())
+<span class=hljs-literal >true</span>
+
+julia&gt; run_test(BaseExecutor())
+<span class=hljs-literal >true</span>
+
+julia&gt; run_test(BaseExecutor())
+<span class=hljs-literal >true</span></code></pre> <p>Of course, this is a tiny and artificial example, but these kinds of rare failures are exactly the kinds of heisenbugs that are difficult to debug when they do occur. Note how there is no I/O or even randomness involved - the only variable is the order futures are scheduled in.</p> <p>We can do slightly better if we use a deterministic scheduler:</p> <pre><code class="julia-repl hljs"><span class="hljs-meta prompt_">julia&gt;</span><span class=language-julia > count( run_test(ConcurrentExecutor(i)) <span class=hljs-keyword >for</span> i <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >1_000</span> )
+</span>465</code></pre> <p>In contrast to <code>BaseExecutor</code> &#40;which just spawns the future eagerly and blocks as usual&#41;, <code>ConcurrentExecutor</code> takes a seed value and <em>randomly</em> schedules tasks based on that, instead of a naive FIFO. This is already much better; we get a roughly 50&#37; failure rate, which is exactly what we expected to get in the first place&#33; Moreover, because the scheduling decisions are purely based on the seed, any individual failure is tied to precisely that seed, so we can always perfectly reproduce any given failure:</p> <pre><code class="julia hljs"><span class=hljs-comment ># find any failure</span>
+julia&gt; findfirst( !run_test(ConcurrentExecutor(i)) <span class=hljs-keyword >for</span> i <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >1_000</span> )
+<span class=hljs-number >2</span>
+
+julia&gt; run_test(ConcurrentExecutor(<span class=hljs-number >2</span>))
+<span class=hljs-literal >false</span>
+
+julia&gt; run_test(ConcurrentExecutor(<span class=hljs-number >2</span>))
+<span class=hljs-literal >false</span>
+
+julia&gt; run_test(ConcurrentExecutor(<span class=hljs-number >2</span>))
+<span class=hljs-literal >false</span></code></pre> <div class="admonition note"><p class=admonition-title >Eager async</p><p>Unlike <code>async</code> in Rust, async code in Julia &#40;through the most commonly used APIs&#41; is executed eagerly, and there&#39;s no callback possible to hook into for when a future yields to the runtime &#40;which is necessary for controlling re-scheduling&#41;. As such, more complicated examples involving I/O or actual reliance on parallel execution of spawned tasks quickly fall apart, which is why I haven&#39;t released these Rust-like executors as a standalone package.</p> </div> <p>This is a situation where Antithesis can help, because it makes the underlying scheduling decisions reproducible within Antithesis, even for <code>BaseExecutor</code>. If such a failure occurs in Antithesis-hosted CI, you can at least reproduce it in a local Antithesis instance. Of course, this doesn&#39;t help at all if a failure occurs on the machine of a user, where you&#39;re not necessarily running under a deterministic OS. Moreover, determinism by itself doesn&#39;t make it more likely to encounter a failure; for that you need some kind of &quot;malicious&quot; scheduler like <code>ConcurrentExecutor</code> that actively tries to induce these kinds of failures in a deterministic way. If you have such a deterministic executor in your application, you have a much better chance at reproducing failures locally when they&#39;re only occuring on some OS/hardware of your customers.</p> <h2 id=shrinking_examples ><a href="#shrinking_examples" class=header-anchor >Shrinking Examples</a></h2> <p>Ok, so much for asynchronous code, but surely the situation is better when it comes to synchronous code, right? Well.. to answer that, we&#39;ll have to learn about what &quot;shrinking&quot; is when it comes to property based testing.</p> <p>Simply put, &quot;shrinking&quot; refers to the process of transforming some &#40;possibly large&#41; input that causes a test failure into a smaller input that causes the same failure. For instance, for the property <code>iseven</code>, any odd number results in a failure/returning <code>false</code>. This can be <code>7</code>, <code>99</code>, <code>23456721</code> or any other odd number. Property based testing libraries take that input and &#40;depending on their design&#41; &quot;shrink&quot; that input to a smaller example. In this case, we&#39;d likely end up with <code>1</code>:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> Supposition
+
+julia&gt; data = <span class=hljs-built_in >Any</span>[]; <span class=hljs-comment ># store the failures somewhere</span>
+
+julia&gt; <span class=hljs-keyword >function</span> shrinkExample(p)
+           iseven(p) &amp;&amp; <span class=hljs-keyword >return</span> <span class=hljs-literal >true</span>
+           <span class=hljs-comment ># record failures in our memory</span>
+           push!(data, p)
+           <span class=hljs-literal >false</span>
+       <span class=hljs-keyword >end</span>
+shrinkExample (generic <span class=hljs-keyword >function</span> with <span class=hljs-number >2</span> methods)
+
+julia&gt; <span class=hljs-meta >@check</span> db=<span class=hljs-literal >false</span> shrinkExample(Data.Integers{<span class=hljs-built_in >UInt8</span>}());
+┌ Error: Property doesn&#x27;t hold!
+│   Description = <span class=hljs-string >&quot;shrinkExample&quot;</span>
+│   Example = (<span class=hljs-number >0x01</span>,)
+└ @ Supposition ~/Documents/projects/Supposition.jl/src/testset.jl:<span class=hljs-number >292</span>
+Test Summary: | Fail  Total  Time
+shrinkExample |    <span class=hljs-number >1</span>      <span class=hljs-number >1</span>  <span class=hljs-number >0.0</span>s
+
+julia&gt; data
+<span class=hljs-number >6</span>-element <span class=hljs-built_in >Vector</span>{<span class=hljs-built_in >Any</span>}:
+ <span class=hljs-number >0x17</span>
+ <span class=hljs-number >0x0b</span>
+ <span class=hljs-number >0x05</span>
+ <span class=hljs-number >0x03</span>
+ <span class=hljs-number >0x03</span>
+ <span class=hljs-number >0x01</span></code></pre> <p>The initial failure was <code>0x17</code> &#40;or 23 in decimal&#41; and successfull shrinks reduced the input to <code>0x01</code> &#40;or just 1 in decimal&#41;, which is a minimal counterexample for <code>iseven</code> on <code>UInt8</code>.</p> <div class="admonition note"><p class=admonition-title >Complexity</p><p>This example is purposefully simple - Supposition.jl can do much more complex shrinks of composite objects out of the box. Check out the <a href="https://seelengrab.github.io/Supposition.jl/stable/index.html">documentation</a> if you&#39;re interested&#33;</p> </div> <p>For such a simple property, shrinking was straightforward. The statespace of the input is relatively small &#40;just 256 states&#41;, and half of those will result in a failure. However, even slightly more complicated examples will give much worse results &#40;through no fault of the shrinking process&#41;. For example, consider this function that checks whether the third element in a random vector is not <code>0x5</code>:</p> <pre><code class="julia hljs"><span class=hljs-keyword >function</span> third_is_not_five(v)
+   <span class=hljs-comment ># we can assume `v` has at least 5 elements, fill those with random data</span>
+   v .= rand(<span class=hljs-built_in >UInt8</span>, <span class=hljs-number >5</span>)
+   v[<span class=hljs-number >3</span>] != <span class=hljs-number >0x5</span>
+<span class=hljs-keyword >end</span></code></pre> <p>We can run this for a number of inputs and see that this property does fail every so often, albeit inconsistently:</p> <pre><code class="julia hljs">julia&gt; findfirst(!third_is_not_five(rand(<span class=hljs-built_in >UInt8</span>, <span class=hljs-number >5</span>)) <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >10_000</span> )
+<span class=hljs-number >409</span>
+
+julia&gt; findfirst(!third_is_not_five(rand(<span class=hljs-built_in >UInt8</span>, <span class=hljs-number >5</span>)) <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >10_000</span> )
+<span class=hljs-number >423</span>
+
+julia&gt; findfirst(!third_is_not_five(rand(<span class=hljs-built_in >UInt8</span>, <span class=hljs-number >5</span>)) <span class=hljs-keyword >for</span> _ <span class=hljs-keyword >in</span> <span class=hljs-number >1</span>:<span class=hljs-number >10_000</span> )
+<span class=hljs-number >741</span></code></pre> <p>If we now try to find a counterexample with Supposition.jl, we find something intriguing:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-keyword >using</span> Supposition
+
+<span class=hljs-comment ># generate random `Vector{UInt8}` with 5 elements</span>
+julia&gt; vec = Data.Vectors(Data.Integers{<span class=hljs-built_in >UInt8</span>}();min_size=<span class=hljs-number >5</span>,max_size=<span class=hljs-number >5</span>);
+
+julia&gt; <span class=hljs-meta >@check</span> third_is_not_five(vec);
+┌ Error: Property doesn&#x27;t hold!
+│   Description = <span class=hljs-string >&quot;third_is_not_five&quot;</span>
+│   Example = (<span class=hljs-built_in >UInt8</span>[<span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>],)
+└ @ Supposition ~/Documents/projects/Supposition.jl/src/testset.jl:<span class=hljs-number >292</span>
+Test Summary:     | Fail  Total  Time
+third_is_not_five |    <span class=hljs-number >1</span>      <span class=hljs-number >1</span>  <span class=hljs-number >0.0</span>s</code></pre> <p>Supposition.jl finds the minimum input - it&#39;s completely filled with <code>0x0</code>&#33; This makes sense, because we&#39;re replacing the contents of the vector we&#39;re putting into <code>third_is_not_five</code> with random data, and only <em>then</em> check whether the property holds. We can record that data with <code>event&#33;</code>, and inspect it in the final report afterwards:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-meta >@check</span> <span class=hljs-keyword >function</span> third_is_not_five(v=vec)
+           v .= rand(<span class=hljs-built_in >UInt8</span>, <span class=hljs-number >5</span>)
+           event!(<span class=hljs-string >&quot;ACTUAL DATA&quot;</span>, v)
+           v[<span class=hljs-number >3</span>] != <span class=hljs-number >5</span>
+       <span class=hljs-keyword >end</span>;
+Events occured: <span class=hljs-number >1</span>
+    ACTUAL DATA
+        <span class=hljs-built_in >UInt8</span>[<span class=hljs-number >0xf7</span>, <span class=hljs-number >0x46</span>, <span class=hljs-number >0x05</span>, <span class=hljs-number >0x71</span>, <span class=hljs-number >0x1e</span>]
+┌ Error: Property doesn&#x27;t hold!
+│   Description = <span class=hljs-string >&quot;third_is_not_five&quot;</span>
+│   Example = (v = <span class=hljs-built_in >UInt8</span>[<span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>],)
+└ @ Supposition ~/Documents/projects/Supposition.jl/src/testset.jl:<span class=hljs-number >292</span>
+Test Summary:     | Fail  Total  Time
+third_is_not_five |    <span class=hljs-number >1</span>      <span class=hljs-number >1</span>  <span class=hljs-number >0.0</span>s</code></pre> <p>And now we can see that indeed, the third element of the actual data we&#39;re checking is <code>0x05</code>. Unfortunately, all of the other data is a jumbled mess, and Supposition.jl did seemingly nothing to shrink that. This is not quite true - Supposition.jl is able to reproduce that exact failure again if we rerun the test:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-meta >@check</span> third_is_not_five(vec)
+Events occured: <span class=hljs-number >1</span>
+    ACTUAL DATA
+        <span class=hljs-built_in >UInt8</span>[<span class=hljs-number >0xf7</span>, <span class=hljs-number >0x46</span>, <span class=hljs-number >0x05</span>, <span class=hljs-number >0x71</span>, <span class=hljs-number >0x1e</span>]
+┌ Error: Property doesn&#x27;t hold!
+│   Description = <span class=hljs-string >&quot;third_is_not_five&quot;</span>
+│   Example = (<span class=hljs-built_in >UInt8</span>[<span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>],)
+└ @ Supposition ~/Documents/projects/Supposition.jl/src/testset.jl:<span class=hljs-number >292</span>
+Test Summary:     | Fail  Total  Time
+third_is_not_five |    <span class=hljs-number >1</span>      <span class=hljs-number >1</span>  <span class=hljs-number >0.0</span>s</code></pre> <p>The problem is that the relationship between the RNG object used by <code>rand</code> &#40;a <code>Xoshiro256&#43;&#43;</code>, for the curious&#41; and that test failure is quite complicated. For any individual invocation of <code>rand&#40;UInt8&#41;</code>, we&#39;d expect to get <code>0x05</code> with a probability of <code>1/256</code>. For the 10_000 examples Supposition.jl tries by default, we&#39;d expect to see a five 39 times, which is quite rare. In total, there are <code>256^5</code> different <code>Vector&#123;UInt8&#125;</code> of length 5, and only <code>256^4</code> of those have a 5 in position 3. Supposition.jl does control the seed of the RNG object, but figuring that relationship out while also shrinking data is, by the nature of <code>Xoshiro256&#43;&#43;</code> being a good PRNG, very difficult. The relationship between the seed and values in the vector is highly nonlinear, and there may not even be a seed that produces the minimal example at all&#33;</p> <div class="admonition note"><p class=admonition-title >Antithesis & Meta knowledge </p><p>For Antithesis, this is a problem - from what I could gather, it has no such &quot;meta knowledge&quot; about the data an application generates, so it must immediately run into the same problems Supposition.jl runs in when we just generate some data with <code>rand</code>. The people behind Antithesis know this, which is why their <a href="https://antithesis.com/blog/sdtalk/">talk about running Super Mario</a> focuses most of its time on how a programmer can guide Antithesis towards &quot;better&quot; executions that get Mario farther into levels, as well as on how to model Super Mario in such a way as to make it likely to hit good inputs.</p> </div> <p>Of course, if we don&#39;t rely on the randomness of <code>rand</code> directly but instead check the generated vector, Supposition.jl has no problems to minimize the example as far as possible:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-meta >@check</span> <span class=hljs-keyword >function</span> third_is_not_five(v=vec)
+           event!(<span class=hljs-string >&quot;ACTUAL DATA&quot;</span>, v)
+           v[<span class=hljs-number >3</span>] != <span class=hljs-number >5</span>
+       <span class=hljs-keyword >end</span>;
+Events occured: <span class=hljs-number >1</span>
+    ACTUAL DATA
+        <span class=hljs-built_in >UInt8</span>[<span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x05</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>]
+┌ Error: Property doesn&#x27;t hold!
+│   Description = <span class=hljs-string >&quot;third_is_not_five&quot;</span>
+│   Example = (v = <span class=hljs-built_in >UInt8</span>[<span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x05</span>, <span class=hljs-number >0x00</span>, <span class=hljs-number >0x00</span>],)
+└ @ Supposition ~/Documents/projects/Supposition.jl/src/testset.jl:<span class=hljs-number >292</span>
+Test Summary:     | Fail  Total  Time
+third_is_not_five |    <span class=hljs-number >1</span>      <span class=hljs-number >1</span>  <span class=hljs-number >0.0</span>s</code></pre> <p>This is because Supposition.jl has much more knowledge about the vector it generated itself than is known just from the seed of the RNG. This additional structure allows it to shrink properly and more targeted than if it had to shrink purely through an RNG seed.</p> <p>This too is not a panacea though - if we put in 64-bit <code>UInt</code> instead of 8-bit <code>UInt8</code>, the test passes even for a million random inputs:</p> <pre><code class="julia hljs">julia&gt; uint_vec = Data.Vectors(Data.Integers{<span class=hljs-built_in >UInt</span>}();min_size=<span class=hljs-number >5</span>,max_size=<span class=hljs-number >5</span>);
+
+julia&gt; <span class=hljs-meta >@check</span> db=<span class=hljs-literal >false</span> max_examples=<span class=hljs-number >1_000_000</span> <span class=hljs-keyword >function</span> third_is_not_five(v=uint_vec)
+           event!(<span class=hljs-string >&quot;ACTUAL DATA&quot;</span>, v)
+           v[<span class=hljs-number >3</span>] != <span class=hljs-number >5</span>
+       <span class=hljs-keyword >end</span>;
+Test Summary:     | Pass  Total  Time
+third_is_not_five |    <span class=hljs-number >1</span>      <span class=hljs-number >1</span>  <span class=hljs-number >1.9</span>s</code></pre> <p>And still the same for ten million inputs:</p> <pre><code class="julia hljs">julia&gt; <span class=hljs-meta >@check</span> db=<span class=hljs-literal >false</span> max_examples=<span class=hljs-number >10_000_000</span> <span class=hljs-keyword >function</span> third_is_not_five(v=uint_vec)
+           event!(<span class=hljs-string >&quot;ACTUAL DATA&quot;</span>, v)
+           v[<span class=hljs-number >3</span>] != <span class=hljs-number >5</span>
+       <span class=hljs-keyword >end</span>;
+Test Summary:     | Pass  Total   Time
+third_is_not_five |    <span class=hljs-number >1</span>      <span class=hljs-number >1</span>  <span class=hljs-number >18.6</span>s</code></pre> <p>This once again comes back around to probabilities. With <code>UInt</code>, it&#39;s exceedingly unlikely to hit exactly <code>5</code> in the third position at all, so Supposition.jl never encounters a counterexample it could shrink. The probabilities for hitting e.g. data races or otherwise extremely rare failures just get worse as programs &amp; their statespaces grow larger. There are some techniques you can use to help Supposition.jl along &#40;e.g. nudging the generation process in a certain direction with <a href="https://seelengrab.github.io/Supposition.jl/stable/Examples/target.html"><code>target&#33;</code></a>&#41;, but those come at the cost of requiring quite a lot of domain specific knowledge to use correctly.</p> <h2 id=conclusion ><a href="#conclusion" class=header-anchor >Conclusion</a></h2> <p>The people behind Anthithesis are well aware of these problems, which is why they&#39;re not <em>just</em> selling a deterministic hypervisor, but also <a href="https://antithesis.com/docs/using_antithesis/sdk/overview.html">an API</a> to give guidance for debugging. A brief look at the SDKs suggest that they&#39;re very bare bones for now, and don&#39;t seem to provide any shrinking capability of their own &#40;though <a href="https://news.ycombinator.com/item?id&#61;40069361">some comments on HackerNews</a> suggest that the Antithesis team is actively working on that, so this will probably improve with time&#41;.</p> <p>That said, there&#39;s also the fact that a deterministic OS gives you much more than just scheduling reproducibility, such as deterministic RAM contents and I/O timing &#40;up to a minimum the operation takes, I guess?&#41;, which may be immensely helpful for some failures in e.g. code you as a developer don&#39;t have control over.</p> <p>My gut feeling is that running deterministic property based tests inside of a system like Antithesis is a good idea. Even better if you can leverage determinism in your actual application as well, e.g. by using a deterministic scheduler/executor to allow exact reproducibility of issues encountered by your users. Even with those capabilities, just running/testing your application under Antithesis &#40;while undoubtedly helpful &amp; a good idea&#41; doesn&#39;t remove having to think carefully about how &amp; where to ensure your application has the properties you want it to have.</p> <p>In terms of testing &amp; reliability overall, these are certainly amazing developments. The future of testing is very exciting, and I hope more people use this approach over conventional testing&#33;</p> <footer> <div id=meta > <a href="http://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> Sukera. Last modified: April 21, 2024. <a type="application/rss+xml" href="./feed.xml"> <img src="/assets/rss.svg" alt="RSS Feed" class=rss-icon /> </a> </div> <div id=love > Website built with <a href="https://github.com/tlienart/Franklin.jl">Franklin.jl</a>, the <a href="https://julialang.org">Julia programming language</a> and <span class=heart >♥</span>! </div> </footer> </div> <script>hljs.highlightAll();hljs.configure({tabReplace: ' '});</script> <script> const setTheme = function (newTheme) { var prefersDarkScheme = window.matchMedia("(prefers-color-scheme: dark)"); var wasNull = newTheme === null; if (newTheme === null) { if (prefersDarkScheme.matches) { newTheme = "dark"; } else { newTheme = "light"; }; }; if (newTheme == "dark") { document.body.classList.toggle("light-theme", false); document.body.classList.toggle("dark-theme", true); document.querySelector(".theme-moon").style.display = "inline-block"; document.querySelector(".theme-sun").style.display = "none"; } else { document.body.classList.toggle("dark-theme", false); document.body.classList.toggle("light-theme", true); document.querySelector(".theme-sun").style.display = "inline-block"; document.querySelector(".theme-moon").style.display = "none"; } if (!wasNull) { localStorage.setItem("theme", newTheme); } }; var currentTheme = localStorage.getItem("theme"); console.log(currentTheme); setTheme(currentTheme); var btn = document.querySelector(".theme-toggle"); btn.addEventListener("click", function () { var theme = document.body.classList.contains("light-theme") ? "dark" : "light"; setTheme(theme); }); var prefersDarkScheme = window.matchMedia("(prefers-color-scheme: dark)"); prefersDarkScheme.addEventListener("change", function() {setTheme(localStorage.getItem("theme"))}); </script>

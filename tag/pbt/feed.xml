@@ -23,6 +23,25 @@
 
 <item>
   <title>
+    <![CDATA[  Antithesis is not enough  ]]>
+  </title>
+  <link> https://seelengrab.github.io/articles/Antithesis is not enough/index.html </link>
+  <guid> https://seelengrab.github.io/articles/Antithesis is not enough/index.html </guid>
+  <description>
+    <![CDATA[  A look at determinism and why it&#39;s required, but not sufficient for good testing  ]]>
+  </description>  
+    
+  <pubDate>Sun, 21 Apr 2024 00:00:00 +0000</pubDate>  
+  
+  
+  <atom:author>
+    <atom:name>Sukera</atom:name>
+  </atom:author>
+        
+</item>
+
+<item>
+  <title>
     <![CDATA[  Error Shrinking: The Good, the Bad and the Ugly  ]]>
   </title>
   <link> https://seelengrab.github.io/articles/Error Shrinking: The Good, the Bad and the Ugly/index.html </link>
