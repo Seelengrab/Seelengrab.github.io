@@ -388,6 +388,8 @@ the Antithesis team is actively working on that, so this will probably improve w
 That said, there's also the fact that a deterministic OS gives you much more than just scheduling reproducibility,
 such as deterministic RAM contents and I/O timing (up to a minimum the operation takes,
 I guess?), which may be immensely helpful for some failures in e.g. code you as a developer don't have control over.
+This, combined with [active fault injection](https://antithesis.com/docs/applications/reliability/fault_injection.html) is already
+a huge boon, but as shown above, having a way to produce any fault is not sufficient for producing _good_ faults.
 
 My gut feeling is that running deterministic property based tests inside of a system like Antithesis is
 a good idea. Even better if you can leverage determinism in your actual application as well, e.g. by using
