@@ -44,6 +44,12 @@
     <priority>0.5</priority>
 </url>
 <url>
+    <loc>https://seelengrab.github.io/articles/RAII%20in%20Julia/index.html</loc>
+    <lastmod>2024-06-10</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+</url>
+<url>
     <loc>https://seelengrab.github.io/tag/index.html</loc>
     <lastmod>2024-06-10</lastmod>
     <changefreq>monthly</changefreq>

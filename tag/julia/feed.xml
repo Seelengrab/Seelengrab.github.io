@@ -23,6 +23,25 @@
 
 <item>
   <title>
+    <![CDATA[  RAII in Julia  ]]>
+  </title>
+  <link> https://seelengrab.github.io/articles/RAII in Julia/index.html </link>
+  <guid> https://seelengrab.github.io/articles/RAII in Julia/index.html </guid>
+  <description>
+    <![CDATA[  RAII is a very powerful technique for managing access to external shared resources in C&#43;&#43;. Is there an equivalent in Julia, and if so, how can we take advantage of it?  ]]>
+  </description>  
+    
+  <pubDate>Mon, 10 Jun 2024 00:00:00 +0000</pubDate>  
+  
+  
+  <atom:author>
+    <atom:name>Sukera</atom:name>
+  </atom:author>
+        
+</item>
+
+<item>
+  <title>
     <![CDATA[  Antithesis is not enough  ]]>
   </title>
   <link> https://seelengrab.github.io/articles/Antithesis is not enough/index.html </link>

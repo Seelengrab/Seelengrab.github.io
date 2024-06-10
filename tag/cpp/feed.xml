@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<rss version="2.0"
+  xmlns:content="http://purl.org/rss/1.0/modules/content/"
+  xmlns:dc="http://purl.org/dc/elements/1.1/"
+  xmlns:media="http://search.yahoo.com/mrss/"
+  xmlns:atom="http://www.w3.org/2005/Atom"
+  xmlns:georss="http://www.georss.org/georss">
+
+  <channel>
+    <title>
+      <![CDATA[  Voyage  ]]>
+    </title>
+    <link> https://seelengrab.github.io/ </link>
+    <description>
+      <![CDATA[  A place to put thoughts; who knows where they&#39;ll lead?  ]]>
+    </description>
+    <atom:link
+      href="https://seelengrab.github.io/feed.xml"
+      rel="self"
+      type="application/rss+xml" />
+
+
+<item>
+  <title>
+    <![CDATA[  RAII in Julia  ]]>
+  </title>
+  <link> https://seelengrab.github.io/articles/RAII in Julia/index.html </link>
+  <guid> https://seelengrab.github.io/articles/RAII in Julia/index.html </guid>
+  <description>
+    <![CDATA[  RAII is a very powerful technique for managing access to external shared resources in C&#43;&#43;. Is there an equivalent in Julia, and if so, how can we take advantage of it?  ]]>
+  </description>  
+    
+  <pubDate>Mon, 10 Jun 2024 00:00:00 +0000</pubDate>  
+  
+  
+  <atom:author>
+    <atom:name>Sukera</atom:name>
+  </atom:author>
+        
+</item>
+</channel></rss>

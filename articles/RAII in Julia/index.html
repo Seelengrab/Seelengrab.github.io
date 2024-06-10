@@ -1,0 +1,151 @@
+<!doctype html> <html lang=en > <meta charset=UTF-8 > <meta name=viewport  content="width=device-width, initial-scale=1"> <link rel=stylesheet  href="/libs/highlight/github.min.css"> <link rel=stylesheet  href="/css/franklin.css"> <link rel=stylesheet  href="/css/basic.css"> <link rel=stylesheet  href="/css/style.css"> <link rel=icon  href="/assets/favicon.png"> <title>RAII in Julia</title> <header> <a href="/" class=blog-name ><span>Voyage:</span><span id=title >RAII in Julia</span></a> <nav> <ul> <li><button class=theme-toggle > <div class=theme-sun >☀️</div> <div class=theme-moon >🌖</div> </button> <li><a href="/articles/">Articles</a> <!--<li><a href="/tag/">Tags</a>--> <li><a href="/about/">About</a> </ul> <img src="/assets/hamburger.svg" id=menu-icon > </nav> </header> <ul class=franklin-content  id=tags > <li><a href='/tag/cpp/'>cpp</a><li><a href='/tag/techniques/'>techniques</a><li><a href='/tag/julia/'>julia</a></ul> <div class=franklin-content ><h1 id=raii_in_julia ><a href="#raii_in_julia" class=header-anchor >RAII in Julia</a></h1> <p>I&#39;ve recently had an interview for a position as a C&#43;&#43; Firmware Developer, where we talked a bit about resource management and lifetimes of shared resources on microcontrollers. One key aspect that came up is of course RAII - or &quot;Resource Acquisition is Initialization&quot;. See the <a href="https://en.cppreference.com/w/cpp/language/raii">C&#43;&#43; Reference</a> for a fully detailed definition, but in a nutshell, RAII is a technique for binding access to a shared resource to the lifetime of an object. How does that work, and can we emulate those semantics in Julia?</p> <p>For simplicities sake, I&#39;m only going to talk about resources that require exclusive access. If there is some overlap in access possible, there can be additional design considerations, but even this seemingly simple case already has lots of semantic complications. Additionally, while the motivational example for this article is resource management on microcontrollers, I&#39;m not actually going to talk a lot about microcontrollers here, particularly when it comes to Julia code. I have written about <a href="https://seelengrab.github.io/articles/Julia&#37;20Abstractions&#37;20for&#37;20Arduino&#37;20registers/">Julia on microcontrollers</a> in the past, but for now, using the techniques presented here in that environment is not always practical. That&#39;ll be something for a future article ;&#41;</p> <h2 id=why_raii ><a href="#why_raii" class=header-anchor >Why RAII?</a></h2> <p>Before we dive into some Julia code, let&#39;s establish a baseline and see in what sort of situations RAII is helpful. For example, you might have a shared communication bus that various parts of your application use to communicate with some peripherals. Only one peripheral can be communicated with at a time, so while one part of your application is busy talking to e.g. a sensor, noone else should be talking over that same bus concurrently. You don&#39;t want to accidentally receive a message that was intended for someone else, or the other way around. This can typically be achieved by creating a class that guards access to the bus through itself and an internal mutex. On creation of an object of that class, the mutex is acquired and the Bus is set up for communication. As long as the object stays alive, nothing else is able to communicate on the Bus through that class. When the object is destroyed, the mutex is released and some other part of our code can communicate on the bus.</p> <p>This example might look like this:</p> <pre><code class="cpp hljs"><span class=hljs-keyword >class</span> <span class="hljs-title class_">CommunicationBus</span>
+{
+  <span class=hljs-keyword >public</span>:
+    <span class=hljs-comment >// the constructor of the RAII object</span>
+    <span class=hljs-built_in >CommunicationBus</span>(Semaphore mutex) : <span class=hljs-built_in >mMutex</span>(mutex)
+    {
+      <span class=hljs-comment >// for illustration only, so assume success</span>
+      <span class=hljs-built_in >acquire</span>(mutex);
+      <span class=hljs-comment >// now setup the bus...</span>
+    }
+
+    <span class=hljs-comment >// the destructor of the RAII object</span>
+    ~<span class=hljs-built_in >CommunicationBus</span>()
+    {
+      <span class=hljs-comment >// return the Bus to a safe default state</span>
+      <span class=hljs-comment >// and then release the mutex</span>
+      <span class=hljs-built_in >release</span>(mutex);
+    }
+  <span class=hljs-keyword >private</span>:
+    Semaphore mMutex;
+}</code></pre> <p>And used like so:</p> <pre><code class="cpp hljs"><span class=hljs-function ><span class=hljs-type >bool</span> <span class=hljs-title >manage_peripheral</span><span class=hljs-params >()</span>
+</span>{
+  <span class=hljs-comment >// Instantiate the class, thereby acquiring the mutex</span>
+  <span class=hljs-function >CommunicationBus <span class=hljs-title >bus</span><span class=hljs-params >(busMutex)</span></span>;
+
+  <span class=hljs-keyword >if</span> (!<span class=hljs-built_in >check_some_value</span>()) {
+    <span class=hljs-keyword >return</span> <span class=hljs-literal >false</span> <span class=hljs-comment >// the bus is released automatically!</span>
+  }
+  
+  <span class=hljs-comment >// the bus is still alive &amp; we have access!</span>
+  <span class=hljs-keyword >if</span> (!<span class=hljs-built_in >check_some_other_data</span>()) {
+    <span class=hljs-keyword >return</span> <span class=hljs-literal >false</span> <span class=hljs-comment >// the bus is released automatically!</span>
+  }
+
+  <span class=hljs-comment >// the bus is still alive &amp; we have access!</span>
+  <span class=hljs-comment >// so manage/talk with the peripheral</span>
+  <span class=hljs-comment >// ...</span>
+
+  <span class=hljs-keyword >return</span> <span class=hljs-literal >true</span> <span class=hljs-comment >// the bus is released!</span>
+}</code></pre> <p>In the above example, we acquire the bus through the dedicated mutex, and release the bus as soon as we return. In case the code throws an exception, the destructor of <code>bus</code> is still called&#33; So even in the presence of stack unwinding, this will still do the right thing. What&#39;s even better is that if we now want to add some other check to this function, we <em>cannot</em> forget to release the mutex, because the compiler already does it for us. Quite convenient for maintenance as a codebase ages&#33;</p> <p>As another example, you might want to disable interrupts in a certain critical section of your code, so that you can be sure that the program is getting its work done without having to worry about leaving some half-broken state lying around somewhere. It&#39;s important to remember &#40;or rather, let the computer do the remembering for you&#33;&#41; to reenable interrupts after you&#39;re done though&#33; Otherwise, your application might not be able to communicate at all anymore, if your external communication is interrupt driven. This would look similar to the above example, where we&#39;d disable interrupts in the constructor and reenable them in the destructor.</p> <h2 id=why_raii_works_in_c ><a href="#why_raii_works_in_c" class=header-anchor >Why RAII works in C&#43;&#43;</a></h2> <p>Knowing how this technique helps with software development is one thing, but another important aspect is knowing <em>why</em> it works. There&#39;s a few requirements on the object model &amp; their lifetiems of C&#43;&#43; objects that are required to make this work. If I&#39;m missing some aspect, please do reach out and I&#39;ll amend this bit :&#41;</p> <p>Alright, so which semantics allow us to use RAII? First of all, it&#39;s that the lifetime of a local, non-static C&#43;&#43; object is bound to the <em>entire</em> scope of the object. In C&#43;&#43;, scopes are denoted by whatever you can fit inside of a pair of curly braces <code>&#123;&#125;</code> and an object that is allocated inside of there is &#40;if done automatically, not through something like <code>malloc</code>&#41; considered alive until the end of the scope.</p> <p>Note how in the example above, we&#39;ve created an instance of <code>CommunicationBus</code> right at the start of the function, but then never again reference the object itself. Since we&#39;re guaranteed that the object is alive until the scope exits, this is fine and is exactly what we&#39;re leaning on here. We&#39;re guaranteed to hold the mutex until we&#39;re exiting from the function.</p> <p>Secondly, C&#43;&#43; <em>guarantees</em> that the destructor of <code>CommunicationBus</code> is called when an exception is thrown. This ensures that even non-standard return paths ensure that the resource we&#39;ve acquired is safely returned to the shared access. This doesn&#39;t guarantee that the entire program is in a consistent state &#40;there may be some other invariant that&#39;s been broken&#41;, but at least in terms of this particular resource, we&#39;re A-OK.</p> <p>Finally, and most importantly, destructors of RAII classes never throw an exception themselves, i.e. they never themselves exit in a non-standard way. The reasoning for this is relatively straightforward: the destructor must run to completion to ensure that all resources acquired by the object are themselves released properly. If the destructor were to throw an exception midway through handling the destruction of its constituent parts, we&#39;d leave some invalid state lying around, and that&#39;s a recipe for future disaster.</p> <p>There are some more niceties that RAII requires, but these three are the main things we&#39;re going to focus on in the next section. Please do give the <a href="https://en.cppreference.com/w/cpp/language/raii">C&#43;&#43; Reference section on RAII</a> a read for the full picture&#33;</p> <h2 id=translating_the_concept_to_julia ><a href="#translating_the_concept_to_julia" class=header-anchor >Translating the concept to Julia</a></h2> <p>Ok, now that we know how &amp; why RAII works, can we do much the same thing in Julia? The closest equivalent Julia has to C&#43;&#43; classes with constructors &amp; destructors are mutable structs &amp; finalizers, so we might expect to translate the example from above like so:</p> <pre><code class="julia hljs"><span class=hljs-keyword >mutable struct</span> CommunicationBus
+    mMutex::Semaphore
+    <span class=hljs-keyword >function</span> CommunicationBus(Semaphore mutex)
+        <span class=hljs-comment ># for illustration only, so assume success</span>
+        acquire(mutex)
+
+        <span class=hljs-comment ># now setup the bus...</span>
+        obj = new(mMutex)
+
+        <span class=hljs-comment ># attach a finalizer to handle the mutex release</span>
+        <span class=hljs-comment ># once we&#x27;re done with it</span>
+        finalizer(obj) <span class=hljs-keyword >do</span>
+            <span class=hljs-comment ># return Bus to a safe default state</span>
+            release(obj.mutex)
+        <span class=hljs-keyword >end</span>
+
+        <span class=hljs-keyword >return</span> obj
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span></code></pre> <p>And use it like so:</p> <pre><code class="julia hljs"><span class=hljs-keyword >function</span> manage_peripheral()
+    <span class=hljs-comment ># Instantiate the struct, thereby acquiring the mutex</span>
+    bus = CommunicationBus(busMutex);
+
+    <span class=hljs-keyword >if</span> (!check_some_value())
+        <span class=hljs-keyword >return</span> <span class=hljs-literal >false</span> <span class=hljs-comment ># the bus is released?</span>
+    <span class=hljs-keyword >end</span>
+  
+    <span class=hljs-keyword >if</span> !check_some_other_data()
+        <span class=hljs-keyword >return</span> <span class=hljs-literal >false</span> <span class=hljs-comment ># the bus is released?</span>
+    <span class=hljs-keyword >end</span>
+
+    <span class=hljs-comment ># manage/talk with the peripheral</span>
+    <span class=hljs-comment ># ...</span>
+
+    <span class=hljs-keyword >return</span> <span class=hljs-literal >true</span> <span class=hljs-comment ># the bus is released?</span>
+<span class=hljs-keyword >end</span></code></pre> <p>Unfortunately, this won&#39;t work as expected&#33; Lifetimes of objects in Julia are not simply bound by scope, but until their last use. Since nothing in our example actually uses <code>bus</code>, the compiler is semantically allowed to finalize the <code>bus</code> as soon as it&#39;s done creating it, effectively as if we acquired and immediately released the <code>busMutex</code>. That would rob us of the exclusivity that we wanted to achieve in the first place&#33;</p> <p>Ok, maybe not too big of a deal, just insert some dummy use in return paths and we&#39;re good, right? Unfortunately, that&#39;s also not good. For one, we&#39;d have to think about doing this on every return path, meaning we&#39;d lose a big advantage of RAII in C&#43;&#43; by making our version hard to use &amp; maintain correctly. For another, the compiler is not <em>required</em> to insert the finalizer eagerly&#33; It might not call the finalizer after the function returns at all, but instead only call it later on when the garbage collector does a maintenance run, which might be very far into the future. Much too late for our purposes. This case would also be hit if our function throws an error&#33; By using a non-standard return path, the resource would be blocked much longer than necessary.</p> <p>So, are we doomed in Julia? Of course not :&#41; We can still make use of the RAII pattern, we just have to go about it in a bit of a smarter way.</p> <div class="admonition note"><p class=admonition-title >Finalizers</p><p>Frankly, I&#39;m not quite sure when I&#39;d actually want to use a finalizer. Since there are no lifetime guarantees on when they are called &#40;there&#39;s also active debate about whether they should be called when the program crashes..&#41;, they can at best provide eventual consistency/freeing of the shared resource. For most applications I&#39;ve encountered so far, this isn&#39;t good - why hold onto a resource longer than necessary? That&#39;s just artificially limiting parallelism because of an implementation detail.</p> </div> <h2 id=function-based_raii ><a href="#function-based_raii" class=header-anchor >Function-based RAII</a></h2> <p>The solution is to ditch mutable structs and finalizers entirely. Instead, take advantage of <em>function scopes</em> to free resources as soon as they&#39;re ready to be freed.</p> <p>Here&#39;s the way to go about it:</p> <pre><code class="julia hljs"><span class=hljs-keyword >struct</span> CommunicationBus
+    mMutex::Semaphore
+    <span class=hljs-keyword >function</span> CommunicationBus(f, mutex::Semaphore)
+        acquire(mutex)
+        bus = new(mutex)
+        <span class=hljs-keyword >try</span>
+            f(bus)
+        <span class=hljs-keyword >finally</span>
+            release(bus.mutex)
+        <span class=hljs-keyword >end</span>
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span></code></pre> <p>That&#39;s it&#33; This code would be used like so:</p> <pre><code class="julia hljs"><span class=hljs-keyword >function</span> manage_peripheral()
+  <span class=hljs-comment ># Instantiate the struct, thereby acquiring the mutex</span>
+  CommunicationBus(busMutex) <span class=hljs-keyword >do</span> _
+      <span class=hljs-keyword >if</span> (!check_some_value())
+          <span class=hljs-keyword >return</span> <span class=hljs-literal >false</span> <span class=hljs-comment ># the bus is released?</span>
+      <span class=hljs-keyword >end</span>
+  
+      <span class=hljs-keyword >if</span> !check_some_other_data()
+          <span class=hljs-keyword >return</span> <span class=hljs-literal >false</span> <span class=hljs-comment ># the bus is released?</span>
+      <span class=hljs-keyword >end</span>
+
+      <span class=hljs-comment ># manage/talk with the peripheral</span>
+      <span class=hljs-comment ># ...</span>
+
+      <span class=hljs-keyword >return</span> <span class=hljs-literal >true</span> <span class=hljs-comment ># the bus is released?</span>
+  <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span></code></pre> <p>or alternatively like so, if using a closure &amp; <code>do</code>-notation is undesirable:</p> <pre><code class="julia hljs"><span class=hljs-comment ># require an instance of `CommunicationBus`, so that users must have</span>
+<span class=hljs-comment ># acquired the mutex required to instantiate the instance</span>
+<span class=hljs-keyword >function</span> manage_peripheral(::CommunicationBus)
+    <span class=hljs-keyword >if</span> (!check_some_value())
+        <span class=hljs-keyword >return</span> <span class=hljs-literal >false</span> <span class=hljs-comment ># the bus is released!</span>
+    <span class=hljs-keyword >end</span>
+  
+    <span class=hljs-keyword >if</span> !check_some_other_data()
+        <span class=hljs-keyword >return</span> <span class=hljs-literal >false</span> <span class=hljs-comment ># the bus is released!</span>
+    <span class=hljs-keyword >end</span>
+
+    <span class=hljs-comment ># manage/talk with the peripheral</span>
+    <span class=hljs-comment ># ...</span>
+
+    <span class=hljs-keyword >return</span> <span class=hljs-literal >true</span> <span class=hljs-comment ># the bus is released!</span>
+<span class=hljs-keyword >end</span>
+
+<span class=hljs-keyword >function</span> main()
+    <span class=hljs-comment ># ...</span>
+
+    <span class=hljs-comment ># executes `manage_peripheral` using the resource `CommunicationBus`</span>
+    CommunicationBus(manage_peripheral, busMutex)
+
+    <span class=hljs-comment ># ...</span>
+<span class=hljs-keyword >end</span></code></pre> <p>How does this work now? Let&#39;s look at the definition of <code>CommunicationBus</code> in detail:</p> <pre><code class="julia hljs"><span class=hljs-comment ># define a struct to act as a handle for our resource</span>
+<span class=hljs-keyword >struct</span> CommunicationBus
+    mMutex::Semaphore
+    <span class=hljs-comment ># override the default constructors &amp; require a Semaphore</span>
+    <span class=hljs-keyword >function</span> CommunicationBus(f, mutex::Semaphore)
+        <span class=hljs-comment ># acquire the mutex before we can construct an instance</span>
+        acquire(mutex)
+        bus = new(mutex)
+        <span class=hljs-keyword >try</span>
+            <span class=hljs-comment ># pass the instance into our function, guaranteeing that</span>
+            <span class=hljs-comment ># f has exclusive access to the specific resource</span>
+            f(bus)
+        <span class=hljs-keyword >finally</span>
+            <span class=hljs-comment ># release the mutex, no matter how we happen to exit f</span>
+            <span class=hljs-comment ># and as soon as we do exit f</span>
+            release(bus.mutex)
+        <span class=hljs-keyword >end</span>
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span></code></pre> <p>C&#43;&#43; lifetimes are bound to scopes, so we have to first and foremost emulate that behavior. We can achieve this by creating a struct &amp; passing that into the function we want to guard, calling the function with our struct as an argument. This ensures that the lifetime of <code>bus</code> is at least as long as the function we&#39;re calling. At the same time, we can fully control acquisition &amp; release of the mutex in our &quot;constructor&quot;, using <code>finally</code> to ensure the mutex is released even in the case of a thrown exception.</p> <p>This also has the additional benefit of releasing the mutex as soon as it&#39;s possible to do so, and not at some unspecified later date. Even more awesome, the struct isn&#39;t mutable anymore and so will very likely end up on the stack, not tracked by the garbage collector at all&#33;</p> <div class="admonition note"><p class=admonition-title >Constructor returns</p><p>We don&#39;t actually have to return an instance of <code>CommunicationBus</code> from our constructor, and in fact we must not return an instance at all&#33; If we were to return an actual instance, we&#39;d leak our resource access outside of the limited scope where we can guarantee exclusivity, allowing third parties to call e.g. <code>manage_peripheral</code> without acquiring the resource in the constructor.</p> <p>If Julia ever requires constructors to return an instance of its type, we can &#40;in theory&#41; just give our &quot;constructor&quot; a different name and disable default constructor methods to achieve the same goal. The important part here is to guarantee that instances of <code>CommunicationBus</code> are always created through our safe method.</p> </div> <p>One detail in the above struct that&#39;s a design consideration is whether you want to require that a semaphore is passed in explicitly. You could also have a fixed, well-known semaphore just for <code>CommunicationBus</code> that you then use directly in the constructor, instead of passing it in. This could help prevent accidentally passing in an already-acquired mutex, causing a deadlock.</p> <h2 id=julia-raii_in_the_real_world ><a href="#julia-raii_in_the_real_world" class=header-anchor >Julia-RAII in the real world</a></h2> <p>If you&#39;re a bit familiar with various IO in the Julia standard library, you might say &quot;hey this looks familiar&quot; and I&#39;d say &quot;Have a cookie&#33;&quot; because you&#39;re absolutely right&#33; This pattern is pretty much how <code>lock</code>, <code>open</code> and some other IO &amp; concurrency related functions already work:</p> <pre><code class="julia hljs"><span class=hljs-comment ># from https://github.com/JuliaLang/julia/blob/77c28ab286f48afe2512e2ae7f7310b87ca3345e/base/io.jl#L407-L414</span>
+<span class=hljs-keyword >function</span> open(f::<span class=hljs-built_in >Function</span>, args...; kwargs...)
+    io = open(args...; kwargs...)
+    <span class=hljs-keyword >try</span>
+        f(io)
+    <span class=hljs-keyword >finally</span>
+        close(io)
+    <span class=hljs-keyword >end</span>
+<span class=hljs-keyword >end</span></code></pre> <p>The main difference between the pattern presented here and what <code>open</code>/<code>lock</code> are doing is that the resource here cannot be constructed without actually doing something with it. <code>open</code>/<code>lock</code> allow the resource to exist without use, i.e. the &quot;handles&quot; are initialized but access is not acquired immediately. By itself that&#39;s not a big deal, but it does mean that you can&#39;t design your program around having <em>exclusive</em> access to the resource. <code>IO</code> &#40;which is returned by the non-function <code>open</code>&#41; in this situation really doesn&#39;t act like a handle or shared resource at all, even though it secretely is under the hood. E.g. <code>stdout</code> and similar are protected by IO internal locks under the hood. If this were exposed in the API, it&#39;d make some usecases threadsafe by design, without having to lock/unlock on every access to the resource.</p> <p>For instance, if we&#39;d have to acquire the lock on <code>stdout</code> on our first access and store that information in the local task, subsequent acquisitions on the same task can be fasttracked until we yield to another task. In the current design, that&#39;s hard to implement because <code>stdout</code> is just a global variable that punts the locking to a <code>write</code> call.</p> <h2 id=conclusion ><a href="#conclusion" class=header-anchor >Conclusion</a></h2> <p>As we found out, RAII is not just a C&#43;&#43; exclusive thing, it&#39;s a much broader technique that can be applied in more languages. The key is thinking about the interplay between object lifetimes, resource management and the semantic guarantees your language provides. If you can emulate the right semantics, you can use RAII pretty much everywhere.</p> <p>For the folks who want to know why I mentioned that this technique won&#39;t &#40;for now&#41; work when programming microcontrollers with Julia: I haven&#39;t looked into supporting <code>try</code>/<code>catch</code>/<code>finally</code> yet, which is a core requirement for making this work. Regardless, that&#39;s about it for RAII in Julia&#33; I hope you learned something here.</p> <footer> <div id=meta > <a href="http://creativecommons.org/licenses/by-sa/4.0/">CC BY-SA 4.0</a> Sukera. Last modified: June 10, 2024. <a type="application/rss+xml" href="/feed.xml"> <img src="/assets/rss.svg" alt="RSS Feed" class=rss-icon /> </a> </div> <div id=love > Website built with <a href="https://github.com/tlienart/Franklin.jl">Franklin.jl</a>, the <a href="https://julialang.org">Julia programming language</a> and <span class=heart >♥</span>! </div> </footer> </div> <script>hljs.highlightAll();hljs.configure({tabReplace: ' '});</script> <script> const setTheme = function (newTheme) { var prefersDarkScheme = window.matchMedia("(prefers-color-scheme: dark)"); var wasNull = newTheme === null; if (newTheme === null) { if (prefersDarkScheme.matches) { newTheme = "dark"; } else { newTheme = "light"; }; }; if (newTheme == "dark") { document.body.classList.toggle("light-theme", false); document.body.classList.toggle("dark-theme", true); document.querySelector(".theme-moon").style.display = "inline-block"; document.querySelector(".theme-sun").style.display = "none"; } else { document.body.classList.toggle("dark-theme", false); document.body.classList.toggle("light-theme", true); document.querySelector(".theme-sun").style.display = "inline-block"; document.querySelector(".theme-moon").style.display = "none"; } if (!wasNull) { localStorage.setItem("theme", newTheme); } }; var currentTheme = localStorage.getItem("theme"); console.log(currentTheme); setTheme(currentTheme); var btn = document.querySelector(".theme-toggle"); btn.addEventListener("click", function () { var theme = document.body.classList.contains("light-theme") ? "dark" : "light"; setTheme(theme); }); var prefersDarkScheme = window.matchMedia("(prefers-color-scheme: dark)"); prefersDarkScheme.addEventListener("change", function() {setTheme(localStorage.getItem("theme"))}); </script>
