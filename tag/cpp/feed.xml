@@ -31,7 +31,7 @@
     <![CDATA[  RAII is a very powerful technique for managing access to external shared resources in C&#43;&#43;. Is there an equivalent in Julia, and if so, how can we take advantage of it?  ]]>
   </description>  
     
-  <pubDate>Mon, 10 Jun 2024 00:00:00 +0000</pubDate>  
+  <pubDate>Wed, 12 Jun 2024 00:00:00 +0000</pubDate>  
   
   
   <atom:author>
