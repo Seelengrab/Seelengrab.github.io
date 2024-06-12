@@ -360,14 +360,20 @@ but access is not acquired immediately. By itself that's not a big deal,
 but it does mean that you can't design your program around having _exclusive_ access
 to the resource. `IO` (which is returned by the non-function `open`) in this
 situation really doesn't act like a handle or shared resource at all, even though
-it secretely is under the hood. E.g. `stdout` and similar are protected by IO internal locks
+it secretely is under the hood. E.g. `stdout` and similar are protected by internal locks
 under the hood. If this were exposed in the API, it'd make some usecases
 threadsafe by design, without having to lock/unlock on every access to the resource.
+This would cleanly solve the problem of torn writes, where the representation of an object
+can be intermixed with other printing in the final output when more than one thread tries to
+write to `stdout` at the same time.
 
-For instance, if we'd have to acquire the lock on `stdout` on our first access and store
+Additionally, if we'd have to acquire the lock on `stdout` on our first access and store
 that information in the local task, subsequent acquisitions on the same task can be fasttracked
 until we yield to another task. In the current design, that's hard to implement
 because `stdout` is just a global variable that punts the locking to a `write` call.
+Of course, this also has a downside in that you should not keep a live reference to `stdout`
+around for long periods in your code so that you don't block other running tasks.
+That change in thinking is quite a big shift!
 
 ## Conclusion
 
