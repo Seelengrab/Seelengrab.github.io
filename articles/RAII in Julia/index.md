@@ -1,6 +1,7 @@
 @def title = "RAII in Julia"
 @def tags = ["cpp", "techniques", "julia"]
 @def rss_description = "RAII is a very powerful technique for managing access to external shared resources in C++. Is there an equivalent in Julia, and if so, how can we take advantage of it?"
+@def rss_pubdate = Date(2024, 6, 12)
 
 # RAII in Julia
 
